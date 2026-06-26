@@ -1,0 +1,11 @@
+# Ignorar arquivo de configuração com dados sensíveis
+config.json
+
+# Logs de monitoramento
+monitor.log
+monitor_error.log
+*.log
+
+# Cache do Python
+__pycache__/
+*.pyc
