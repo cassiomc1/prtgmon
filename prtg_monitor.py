@@ -69,11 +69,17 @@ def trigger_macos_alert(title, message):
         log(f"Failed to trigger macOS alert dialog: {e}", "warning")
 
 class PRTGMonitor:
+    API_PAGE_SIZE = 500
+    STATUS_LOOKUP_LIMIT = 10
+    STATUS_LOOKUP_TIMEOUT = 5
+    STATUS_UP = 3
+
     def __init__(self, config_path="config.json"):
         self.config_path = config_path
         self.config = {}
         self.active_alerts = {}  # Tracks currently down sensors: {objid: {sensor_info}}
         self.first_run = True
+        self.status_lookup_offset = 0
         self.load_config()
 
     def load_config(self):
@@ -112,26 +118,36 @@ class PRTGMonitor:
         except Exception as e:
             log(f"Failed to write default config: {e}", "error")
 
-    def build_api_url(self):
+    def build_api_url(self, start=0, count=None):
         prtg_url = self.config.get("prtg_url", "").rstrip("/")
         apitoken = self.config.get("apitoken", "")
-        filter_statuses = self.config.get("filter_statuses", [5])
+        count = count or self.API_PAGE_SIZE
         
         # Build query parameters
         params = [
             ('content', 'sensors'),
             ('columns', 'objid,sensor,device,status,message,lastvalue'),
+            ('sortby', 'objid'),
+            ('start', str(start)),
+            ('count', str(count)),
             ('apitoken', apitoken)
         ]
-        # Append status filters
-        for status in filter_statuses:
+        for status in self.config.get("filter_statuses", [5]):
             params.append(('filter_status', str(status)))
             
         query_string = urllib.parse.urlencode(params)
         return f"{prtg_url}/api/table.xml?{query_string}"
 
-    def fetch_active_errors(self):
-        url = self.build_api_url()
+    def build_object_status_url(self, objid):
+        prtg_url = self.config.get("prtg_url", "").rstrip("/")
+        params = urllib.parse.urlencode({
+            'id': str(objid),
+            'name': 'status',
+            'apitoken': self.config.get("apitoken", "")
+        })
+        return f"{prtg_url}/api/getobjectstatus.htm?{params}"
+    
+    def fetch_xml(self, url, timeout=15):
         verify_ssl = self.config.get("verify_ssl", False)
         
         # Create SSL context based on verification preference
@@ -146,7 +162,7 @@ class PRTGMonitor:
         )
         
         try:
-            with urllib.request.urlopen(req, context=ctx, timeout=15) as response:
+            with urllib.request.urlopen(req, context=ctx, timeout=timeout) as response:
                 if response.status != 200:
                     log(f"PRTG Server responded with status code: {response.status}", "error")
                     return None
@@ -158,38 +174,124 @@ class PRTGMonitor:
             log(f"Unexpected error fetching PRTG data: {e}", "error")
             return None
 
-    def parse_xml_sensors(self, xml_data):
+    def parse_xml_sensor_page(self, xml_data):
         if not xml_data:
-            return []
+            log("PRTG returned an empty response.", "error")
+            return None
             
         try:
             root = ET.fromstring(xml_data)
-            sensors = []
-            
-            # Look for item tags containing sensor info
-            for item in root.findall('.//item'):
-                sensor_info = {
-                    'objid': item.findtext('objid', '').strip(),
-                    'sensor': item.findtext('sensor', '').strip(),
-                    'device': item.findtext('device', '').strip(),
-                    'status': item.findtext('status', '').strip(),
-                    'message': item.findtext('message', '').strip(),
-                    'lastvalue': item.findtext('lastvalue', '').strip()
-                }
-                if sensor_info['objid']:
-                    sensors.append(sensor_info)
-            return sensors
         except ET.ParseError as e:
-            log(f"XML Parsing failed. PRTG response might contain an error. Details: {e}", "error")
-            # Attempt to extract error message if PRTG returned an error XML format
+            log(f"XML parsing failed. Keeping the previous alert state. Details: {e}", "error")
+            return None
+
+        err_msg = root.findtext('error')
+        if err_msg:
+            log(f"PRTG error: {err_msg}", "error")
+            return None
+        if root.tag != 'sensors':
+            log(f"Unexpected PRTG XML root '{root.tag}'. Keeping the previous alert state.", "error")
+            return None
+
+        try:
+            total_count = int(root.attrib['totalcount'])
+        except (KeyError, TypeError, ValueError):
+            log("PRTG response does not contain a valid totalcount.", "error")
+            return None
+        if root.attrib.get('listend') not in ('0', '1'):
+            log("PRTG response does not contain a valid listend.", "error")
+            return None
+        list_end = root.attrib['listend'] == '1'
+
+        sensors = []
+        for item in root.findall('./item'):
+            objid = item.findtext('objid', '').strip()
+            if not objid:
+                log("PRTG response contains a sensor without objid.", "error")
+                return None
+            status_raw_text = item.findtext('status_RAW') or item.findtext('status_raw') or ''
             try:
-                err_root = ET.fromstring(xml_data)
-                err_msg = err_root.findtext('error')
-                if err_msg:
-                    log(f"PRTG Error: {err_msg}", "error")
-            except Exception:
-                pass
-            return []
+                status_raw = int(status_raw_text.strip())
+            except ValueError:
+                log(f"PRTG response contains an invalid status_RAW for sensor {objid}.", "error")
+                return None
+            sensors.append({
+                'objid': objid,
+                'sensor': item.findtext('sensor', '').strip(),
+                'device': item.findtext('device', '').strip(),
+                'status': item.findtext('status', '').strip(),
+                'status_raw': status_raw,
+                'message': item.findtext('message', '').strip(),
+                'lastvalue': item.findtext('lastvalue', '').strip()
+            })
+        return sensors, total_count, list_end
+
+    def fetch_active_errors(self):
+        sensors_by_id = {}
+        expected_total = None
+        start = 0
+
+        while True:
+            url = self.build_api_url(start=start, count=self.API_PAGE_SIZE)
+            xml_data = self.fetch_xml(url)
+            if xml_data is None:
+                return None
+
+            page = self.parse_xml_sensor_page(xml_data)
+            if page is None:
+                return None
+            page_sensors, total_count, list_end = page
+
+            if expected_total is None:
+                expected_total = total_count
+            elif total_count != expected_total:
+                log("PRTG result changed during pagination. Keeping the previous alert state.", "warning")
+                return None
+
+            for sensor in page_sensors:
+                sensors_by_id[sensor['objid']] = sensor
+            start += len(page_sensors)
+
+            if list_end:
+                if start != expected_total:
+                    log("PRTG pagination ended with an inconsistent item count.", "error")
+                    return None
+                if len(sensors_by_id) != expected_total:
+                    log("PRTG pagination returned duplicate or missing sensors. Keeping the previous alert state.", "error")
+                    return None
+                return list(sensors_by_id.values())
+            if start >= expected_total:
+                log("PRTG pagination continued past totalcount.", "error")
+                return None
+            if not page_sensors:
+                log("PRTG pagination ended before all sensors were returned.", "error")
+                return None
+
+    def fetch_sensor_status(self, objid):
+        url = self.build_object_status_url(objid)
+        xml_data = self.fetch_xml(url, timeout=self.STATUS_LOOKUP_TIMEOUT)
+        if not xml_data:
+            return None
+
+        try:
+            root = ET.fromstring(xml_data)
+        except ET.ParseError as e:
+            log(f"Sensor status XML parsing failed for {objid}: {e}", "error")
+            return None
+
+        err_msg = root.findtext('error')
+        if err_msg:
+            log(f"PRTG error checking sensor {objid}: {err_msg}", "error")
+            return None
+        if root.tag != 'prtg':
+            log(f"Unexpected status XML root '{root.tag}' for sensor {objid}.", "error")
+            return None
+
+        try:
+            return int(root.findtext('result', '').strip())
+        except ValueError:
+            log(f"PRTG returned an invalid status for sensor {objid}.", "error")
+            return None
 
     def notify_alert(self, sensor):
         objid = sensor['objid']
@@ -231,13 +333,11 @@ class PRTGMonitor:
 
     def run_cycle(self):
         log("Checking PRTG for active error alerts...", "info")
-        xml_data = self.fetch_active_errors()
+        current_sensors = self.fetch_active_errors()
         
-        if xml_data is None:
-            # Fetch failed, skip logic to avoid false recovery notifications
+        if current_sensors is None:
+            # Fetch or parsing failed, skip logic to avoid false recovery notifications
             return
-            
-        current_sensors = self.parse_xml_sensors(xml_data)
         current_sensor_ids = set()
         
         # Process active alerts
@@ -256,13 +356,28 @@ class PRTGMonitor:
                 self.active_alerts[objid] = sensor
 
         # Process resolved alerts
-        resolved_ids = list(self.active_alerts.keys())
-        for objid in resolved_ids:
-            if objid not in current_sensor_ids:
-                # Alert has been resolved
-                resolved_sensor = self.active_alerts.pop(objid)
-                if self.config.get("notify_on_resolve", True) and not self.first_run:
-                    self.notify_resolution(resolved_sensor)
+        missing_ids = [
+            objid for objid in self.active_alerts
+            if objid not in current_sensor_ids
+        ]
+        if missing_ids:
+            offset = getattr(self, 'status_lookup_offset', 0) % len(missing_ids)
+            ordered_ids = missing_ids[offset:] + missing_ids[:offset]
+            status_check_ids = ordered_ids[:self.STATUS_LOOKUP_LIMIT]
+            self.status_lookup_offset = (offset + len(status_check_ids)) % len(missing_ids)
+        else:
+            status_check_ids = []
+            self.status_lookup_offset = 0
+
+        for objid in status_check_ids:
+            current_status = self.fetch_sensor_status(objid)
+            if current_status != self.STATUS_UP:
+                # Missing from the configured filter is not proof of recovery.
+                continue
+
+            resolved_sensor = self.active_alerts.pop(objid)
+            if self.config.get("notify_on_resolve", True) and not self.first_run:
+                self.notify_resolution(resolved_sensor)
                     
         self.first_run = False
         log(f"Cycle completed. Active error count: {len(self.active_alerts)}", "info")
