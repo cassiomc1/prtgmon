@@ -1,5 +1,9 @@
 # Monitor de Alertas PRTG para macOS 🚀
 
+## Guia técnico
+
+Consulte o [AGENTS.md](AGENTS.md) para os contratos de confiabilidade, validação e configuração segura.
+
 Este projeto é um script leve em Python que monitora ativamente seu servidor PRTG através da API HTTP/REST e exibe notificações nativas na tela do seu macOS sempre que um sensor entra em estado de erro (Down) ou quando o erro é resolvido.
 
 ## ✨ Recursos
