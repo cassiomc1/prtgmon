@@ -711,17 +711,17 @@ class PRTGMonitor:
         msg = sensor.get('message', '')
         status = sensor.get('status', '')
 
-        title = f"🔴 Alerta PRTG: {status}"
+        title = f"🔴 PRTG Alert: {status}"
         subtitle = f"{device} ➔ {name}"
-        alert_body = f"Sensor: {name}\nDispositivo: {device}\nMensagem: {msg}"
+        alert_body = f"Sensor: {name}\nDevice: {device}\nMessage: {msg}"
 
-        log(f"Alerta Ativo - Sensor: {name} | Dispositivo: {device} | Status: {status} | Msg: {msg}", "alert")
+        log(f"Active Alert - Sensor: {name} | Device: {device} | Status: {status} | Msg: {msg}", "alert")
         prtg_url = self.config.get("prtg_url", "").rstrip("/")
         sensor_link = f"{prtg_url}/sensor.htm?id={urllib.parse.quote(str(objid), safe='')}"
         if _use_color():
-            print(f"   ➔ Link para o sensor: {Colors.UNDERLINE}{sensor_link}{Colors.ENDC}", flush=True)
+            print(f"   ➔ Sensor link: {Colors.UNDERLINE}{sensor_link}{Colors.ENDC}", flush=True)
         else:
-            print(f"   ➔ Link para o sensor: {sensor_link}", flush=True)
+            print(f"   ➔ Sensor link: {sensor_link}", flush=True)
 
         notification_type = self.config.get("notification_type", "banner").lower()
         sound = self.config.get("sound_name", "Glass")
@@ -736,12 +736,12 @@ class PRTGMonitor:
         name = sensor.get('sensor', '')
         device = sensor.get('device', '')
 
-        title = "🟢 Alerta PRTG Resolvido"
+        title = "🟢 PRTG Alert Resolved"
         subtitle = f"{device} ➔ {name}"
-        msg = "O sensor retornou ao estado normal."
-        resolution_body = f"Sensor: {name}\nDispositivo: {device}\nStatus: {msg}"
+        msg = "The sensor returned to normal state."
+        resolution_body = f"Sensor: {name}\nDevice: {device}\nStatus: {msg}"
 
-        log(f"Alerta Resolvido - Sensor: {name} | Dispositivo: {device}", "success")
+        log(f"Alert Resolved - Sensor: {name} | Device: {device}", "success")
 
         notification_type = self.config.get("notification_type", "banner").lower()
         if "resolve_sound_name" in self.config:
@@ -841,9 +841,9 @@ class PRTGMonitor:
 
         if should_notify_startup and notification_type in ("banner", "both"):
             trigger_macos_notification(
-                "PRTG Monitor Iniciado",
-                "Monitoramento Ativo",
-                f"Buscando erros a cada {interval} segundos.",
+                "PRTG Monitor Started",
+                "Monitoring Active",
+                f"Checking for errors every {interval} seconds.",
                 self.config.get("sound_name"),
             )
 
