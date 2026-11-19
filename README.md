@@ -8,6 +8,8 @@ The [technical architecture](docs/architecture.md) documents atomic alert reconc
 
 This project is a lightweight Python script that actively monitors your PRTG server through the XML API and displays native macOS notifications whenever a sensor enters an error state (Down) or returns to normal (Up).
 
+> **Why this exists:** the official PRTG Desktop app for macOS is, frankly, terrible — slow, bloated, and unreliable. This project was created as a fast, dependency-free alternative that does the one thing that actually matters: alerting you when something breaks.
+
 ## ✨ Features
 
 - **Zero Dependencies:** Built purely with Python standard libraries (`urllib`, `xml.etree`, `argparse`, `json`, etc.), compatible with the macOS `/usr/bin/python3` — no `pip install` required.
