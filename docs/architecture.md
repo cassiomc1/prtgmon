@@ -44,6 +44,14 @@ The `notification_type` modes remain strictly distinct:
 
 For a LaunchAgent deployment, use a dedicated installation directory, absolute paths valid on the target Mac for Python and the script, and writable log paths (such as `~/Library/Logs/prtgmon/`). Never copy a developer checkout path into a reusable launchd file.
 
+## Terminal UI (`prtg_tui.py`, `prtg_api.py`) and macOS App Bundle
+
+`prtg_api.py` implements `PRTGClient`, a read-only JSON API client supporting `/api/getstatus.htm`, paginated `/api/table.json` queries (`sensors`, `devices`, `groups`, `channels`, `messages`), `/api/getsensordetails.json`, and `/api/historicdata.json`, redacting tokens from all HTTP/network errors.
+
+`prtg_tui.py` provides an interactive, strictly read-only `curses` explorer across five tabs (`alerts`, `sensors`, `devices`, `groups`, `logs`) plus a full-screen Sensor Inspector with Unicode Braille time-series charts (`1h`–`30d`), multi-channel switching, full metadata, and 30-day sensor event/data history. It installs a custom log callback via `set_log_handler()` so `PRTGMonitor` logs never corrupt the `curses` display, primes initial rows from `state.json` if present, and never writes `state.json` or emits macOS notifications.
+
+`scripts/install_macos_app.py` packages `prtg_tui.py`, `prtg_api.py`, `prtg_monitor.py`, and an `.icns` icon built via `sips`/`iconutil` into a self-contained macOS `.app` bundle (e.g., `/Applications/PRTG Monitor TUI.app`) that opens in `Terminal.app` via `/usr/bin/open -a Terminal` without Automation permission prompts or developer checkout path references.
+
 ## Validation
 
 ```bash
