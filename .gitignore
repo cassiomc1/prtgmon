@@ -1,5 +1,8 @@
-# Ignorar arquivo de configuração com dados sensíveis
+# Ignorar arquivo de configuração com dados sensíveis e estado persistido
 config.json
+state.json
+*.state.json
+.prtg_state_*.tmp
 
 # Logs de monitoramento
 monitor.log
