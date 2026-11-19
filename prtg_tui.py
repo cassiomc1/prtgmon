@@ -29,34 +29,34 @@ STATE_POLL_INTERVAL_SECONDS = 2.0
 UI_TICK_MS = 200
 
 TABS = (
-    ("alerts", "1:Alertas"),
-    ("sensors", "2:Sensores"),
-    ("devices", "3:Dispositivos"),
-    ("groups", "4:Grupos"),
+    ("alerts", "1:Alerts"),
+    ("sensors", "2:Sensors"),
+    ("devices", "3:Devices"),
+    ("groups", "4:Groups"),
     ("logs", "5:Logs"),
 )
 INSPECTOR_VIEWS = ("chart", "details", "history")
 INSPECTOR_VIEW_LABELS = {
-    "chart": "1:Gráfico+Canais",
-    "details": "2:Detalhes",
-    "history": "3:Histórico+Logs",
+    "chart": "1:Chart+Channels",
+    "details": "2:Details",
+    "history": "3:History+Logs",
 }
 STATUS_FILTERS = ("all", "alerts", "down", "warn", "up", "paused", "other")
 STATUS_FILTER_LABELS = {
-    "all": "Todos",
-    "alerts": "Alertas",
+    "all": "All",
+    "alerts": "Alerts",
     "down": "Down",
     "warn": "Warning",
     "up": "Up",
-    "paused": "Pausados",
-    "other": "Outros",
+    "paused": "Paused",
+    "other": "Other",
 }
 SORT_MODES = ("status", "device", "sensor", "group", "objid", "uptime")
 SORT_LABELS = {
     "status": "Status",
-    "device": "Dispositivo",
+    "device": "Device",
     "sensor": "Sensor",
-    "group": "Grupo",
+    "group": "Group",
     "objid": "ID",
     "uptime": "Uptime",
 }
@@ -114,24 +114,24 @@ def _parse_iso_utc_to_epoch(value):
 def load_state_snapshot(state_path):
     """Read-only load of persisted state.json returning (alerts, updated_at, error)."""
     if not state_path:
-        return [], None, "Persistência de estado desabilitada (state_file=null)."
+        return [], None, "State persistence is disabled (state_file=null)."
     if not os.path.exists(state_path):
-        return [], None, f"Arquivo de estado não encontrado: {state_path}"
+        return [], None, f"State file not found: {state_path}"
 
     try:
         with open(state_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
-            raise ValueError("raiz do estado deve ser um objeto JSON")
+            raise ValueError("state root must be a JSON object")
 
         raw_alerts = data.get("active_alerts")
         if not isinstance(raw_alerts, dict):
-            raise ValueError("active_alerts ausente ou inválido")
+            raise ValueError("active_alerts missing or invalid")
 
         alerts = []
         for key, entry in raw_alerts.items():
             if not isinstance(key, str) or not key.strip() or not isinstance(entry, dict):
-                raise ValueError("entrada de alerta inválida")
+                raise ValueError("invalid alert entry")
             objid = str(entry.get("objid") or key).strip()
             status_raw = entry.get("status_raw", 0)
             if isinstance(status_raw, bool) or not isinstance(status_raw, int):
@@ -151,7 +151,7 @@ def load_state_snapshot(state_path):
             updated_at = os.path.getmtime(state_path)
         return alerts, updated_at, None
     except (OSError, json.JSONDecodeError, ValueError) as e:
-        return None, None, f"Falha ao ler estado: {e}"
+        return None, None, f"Failed to read state: {e}"
 
 
 def summarize_alerts(alerts):
@@ -940,7 +940,7 @@ class TUIRunner:
             alerts, updated_at, error = load_state_snapshot(self.state.state_path)
             self.state.apply_snapshot(alerts, updated_at=updated_at, error=error, expected_mode="state")
             if force:
-                self.state.set_notice("Estado recarregado de state.json.", duration=2.5)
+                self.state.set_notice("State reloaded from state.json.", duration=2.5)
             return True
 
         thread = threading.Thread(target=self._run_live_fetch, args=(log_range,), daemon=True)
@@ -1001,7 +1001,7 @@ class TUIRunner:
             if not hasattr(self.client, "fetch_all_sensors"):
                 sensors = self.monitor.fetch_active_errors()
                 if sensors is None:
-                    err_msg = captured[-1] if captured else "Falha ao consultar API do PRTG."
+                    err_msg = captured[-1] if captured else "Failed to query the PRTG API."
                     self.state.apply_snapshot(None, error=err_msg, expected_mode="live")
                 else:
                     self.state.apply_snapshot(sensors, updated_at=time.time(), error=None, expected_mode="live")
@@ -1172,39 +1172,39 @@ def _status_badge(status_raw, colors):
 def _render_help_modal(win, snap, height, width, colors):
     if snap["inspector_open"]:
         lines = [
-            "Atalhos no Inspetor do Sensor:",
-            "  v  ou  1 / 2 / 3      Alternar visão (Gráfico / Detalhes / Histórico)",
-            "  n / p  ou  ← / →      Próximo / anterior canal no gráfico",
-            "  t                     Alternar janela do gráfico (1h/2h/24h/7d/30d)",
-            "  ↑ / ↓  ou  j / k      Rolar detalhes/histórico",
-            "  r                     Atualizar sensor agora",
-            "  o                     Abrir sensor no navegador",
-            "  Esc  ou  b            Voltar para a lista",
-            "  q                     Sair do programa",
+            "Sensor Inspector shortcuts:",
+            "  v  or  1 / 2 / 3      Switch view (Chart / Details / History)",
+            "  n / p  or  ← / →      Next / previous channel on the chart",
+            "  t                     Switch chart window (1h/2h/24h/7d/30d)",
+            "  ↑ / ↓  or  j / k      Scroll details/history",
+            "  r                     Refresh sensor now",
+            "  o                     Open sensor in browser",
+            "  Esc  or  b            Back to the list",
+            "  q                     Quit the program",
         ]
     else:
         lines = [
-            "Atalhos do PRTG Explorer TUI:",
-            "  1..5  ou  Tab         Trocar aba (Alertas/Sensores/Disp./Grupos/Logs)",
-            "  ↑ / ↓  ou  j / k      Mover seleção",
-            "  PgUp / PgDn / g / G   Página / Início / Fim",
-            "  Enter                 Inspecionar sensor (ou filtrar disp./grupo)",
-            "  /                     Buscar por nome, dispositivo, tag, mensagem",
-            "  c                     Limpar busca e filtros",
-            "  f                     Filtrar por status (na aba Sensores)",
-            "  s                     Alternar ordenação (Status/Disp./Sensor/ID/Uptime)",
-            "  t                     Alternar período dos Logs (Hoje / 7d / 30d)",
-            "  r                     Atualizar agora",
-            "  m                     Alternar modo (LIVE API / STATE json)",
-            "  o                     Abrir item selecionado no navegador",
-            "  ?                     Mostrar/fechar ajuda   |   q: Sair",
+            "PRTG Explorer TUI shortcuts:",
+            "  1..5  or  Tab         Switch tab (Alerts/Sensors/Dev./Groups/Logs)",
+            "  ↑ / ↓  or  j / k      Move selection",
+            "  PgUp / PgDn / g / G   Page / Top / Bottom",
+            "  Enter                 Inspect sensor (or filter dev./group)",
+            "  /                     Search by name, device, tag, message",
+            "  c                     Clear search and filters",
+            "  f                     Filter by status (on the Sensors tab)",
+            "  s                     Toggle sort (Status/Dev./Sensor/ID/Uptime)",
+            "  t                     Toggle log period (Today / 7d / 30d)",
+            "  r                     Refresh now",
+            "  m                     Toggle mode (LIVE API / STATE json)",
+            "  o                     Open selected item in browser",
+            "  ?                     Show/hide help   |   q: Quit",
         ]
     lines.extend([
         "",
-        f"Modo atual : {snap['mode'].upper()}   |   Aba: {snap['tab'].upper()}",
+        f"Mode       : {snap['mode'].upper()}   |   Tab: {snap['tab'].upper()}",
         f"Config     : {snap['config_path']}",
-        f"Estado     : {snap['state_path'] or '(desativado)'}",
-        "Pressione Esc, ? ou Enter para fechar.",
+        f"State      : {snap['state_path'] or '(disabled)'}",
+        "Press Esc, ? or Enter to close.",
     ])
 
     box_w = min(width - 4, max(len(line) for line in lines) + 4)
@@ -1224,7 +1224,7 @@ def _render_help_modal(win, snap, height, width, colors):
         left,
         box_h,
         box_w,
-        title="Ajuda - PRTG Monitor TUI",
+        title="Help - PRTG Monitor TUI",
         border_attr=colors["cyan"],
         title_attr=colors["cyan"] | colors["bold"],
     )
@@ -1252,22 +1252,22 @@ def _render_inspector(win, snap, height, width, now_mono, spinner_idx, colors):
 
     if snap["inspector_loading"]:
         spin = SPINNER_FRAMES[spinner_idx % len(SPINNER_FRAMES)]
-        safe_addstr(win, 0, max(2, width - 20), f" {spin} CARREGANDO... ", colors["yellow"])
+        safe_addstr(win, 0, max(2, width - 20), f" {spin} LOADING... ", colors["yellow"])
 
     path_str = " ➔ ".join(p for p in (probe, group, device) if p) or "-"
     safe_addstr(win, 1, 2, f"{dot} {status_txt}", dot_attr)
     info_x = 2 + len(f"{dot} {status_txt}") + 3
     if info_x < width - 10:
         stype = details.get("sensortype") or ""
-        interval = f" | Intervalo: {details['interval']}s" if details.get("interval") else ""
-        meta = f"Caminho: {path_str}" + (f" | Tipo: {stype}" if stype else "") + interval
+        interval = f" | Interval: {details['interval']}s" if details.get("interval") else ""
+        meta = f"Path: {path_str}" + (f" | Type: {stype}" if stype else "") + interval
         safe_addstr(win, 1, info_x, truncate_text(meta, width - info_x - 2), colors["normal"])
 
     uptime = details.get("uptime") or sensor.get("uptime") or "-"
     downtime = details.get("downtime") or sensor.get("downtime") or "-"
     lastcheck = details.get("lastcheck") or sensor.get("lastcheck") or "-"
     lastval = details.get("lastvalue") or sensor.get("lastvalue") or "-"
-    row2 = f"Último valor: {lastval} | Uptime: {uptime} | Downtime: {downtime} | Últ. Check: {lastcheck}"
+    row2 = f"Last value: {lastval} | Uptime: {uptime} | Downtime: {downtime} | Last Check: {lastcheck}"
     safe_addstr(win, 2, 2, truncate_text(row2, width - 4), colors["normal"])
 
     # View tabs on row 3
@@ -1277,7 +1277,7 @@ def _render_inspector(win, snap, height, width, now_mono, spinner_idx, colors):
         attr = (colors["cyan"] | colors["bold"] | colors["reverse"]) if view_key == snap["inspector_view"] else colors["dim"]
         safe_addstr(win, 3, vx, lbl, attr)
         vx += len(lbl) + 2
-    win_lbl = f"Janela: {snap['inspector_window']}"
+    win_lbl = f"Window: {snap['inspector_window']}"
     if vx + len(win_lbl) + 4 < width:
         safe_addstr(win, 3, width - len(win_lbl) - 3, win_lbl, colors["cyan"])
 
@@ -1286,7 +1286,7 @@ def _render_inspector(win, snap, height, width, now_mono, spinner_idx, colors):
         safe_addstr(win, cursor_y, 1, truncate_text(f"⚠ {snap['inspector_error']}", width - 2), colors["red"])
         cursor_y += 1
     elif snap["mode"] == "state" and not snap["inspector_historic"]:
-        safe_addstr(win, cursor_y, 1, truncate_text("ℹ Modo STATE: pressione [m] para alternar para LIVE e carregar gráficos/histórico.", width - 2), colors["yellow"])
+        safe_addstr(win, cursor_y, 1, truncate_text("ℹ STATE mode: press [m] to switch to LIVE and load charts/history.", width - 2), colors["yellow"])
         cursor_y += 1
     elif snap["notice"]:
         safe_addstr(win, cursor_y, 1, truncate_text(f"ℹ {snap['notice']}", width - 2), colors["cyan"])
@@ -1304,7 +1304,7 @@ def _render_inspector(win, snap, height, width, now_mono, spinner_idx, colors):
         else:
             _render_inspector_history_view(win, snap, cursor_y, body_h, width, colors)
 
-    footer = "[v/1-3] Visão  [n/p] Canal  [t] Janela  [↑↓/jk] Rolar  [r] Atualizar  [o] Navegador  [Esc/b] Voltar  [?] Ajuda  [q] Sair"
+    footer = "[v/1-3] View  [n/p] Channel  [t] Window  [↑↓/jk] Scroll  [r] Refresh  [o] Browser  [Esc/b] Back  [?] Help  [q] Quit"
     safe_addstr(win, footer_y, 1, truncate_text(footer, width - 2), colors["dim"])
 
 
@@ -1322,12 +1322,12 @@ def _render_inspector_chart_view(win, snap, top, body_h, width, colors):
             0,
             chart_h,
             width,
-            title=f"Gráfico Histórico ({snap['inspector_window']})",
+            title=f"Historical Chart ({snap['inspector_window']})",
             border_attr=colors["cyan"],
             title_attr=colors["bold"],
         )
         if not hist_channels:
-            msg = "Carregando série histórica..." if snap["inspector_loading"] else "Sem dados históricos numéricos disponíveis."
+            msg = "Loading historical series..." if snap["inspector_loading"] else "No numeric historical data available."
             safe_addstr(win, top + chart_h // 2, max(2, (width - len(msg)) // 2), msg, colors["dim"])
         else:
             ch_idx = snap["inspector_channel_index"] % len(hist_channels)
@@ -1337,11 +1337,11 @@ def _render_inspector_chart_view(win, snap, top, body_h, width, colors):
             timestamps = historic.get("timestamps", [])
 
             stat_line = (
-                f"Canal [{ch_idx + 1}/{len(hist_channels)}]: {ch_name}  |  "
-                f"Últ: {format_human_number(stats.get('last'))}  "
-                f"Mín: {format_human_number(stats.get('min'))}  "
-                f"Méd: {format_human_number(stats.get('avg'))}  "
-                f"Máx: {format_human_number(stats.get('max'))}  "
+                f"Channel [{ch_idx + 1}/{len(hist_channels)}]: {ch_name}  |  "
+                f"Last: {format_human_number(stats.get('last'))}  "
+                f"Min: {format_human_number(stats.get('min'))}  "
+                f"Avg: {format_human_number(stats.get('avg'))}  "
+                f"Max: {format_human_number(stats.get('max'))}  "
                 f"({stats.get('count', 0)} pts)"
             )
             safe_addstr(win, top + 1, 2, truncate_text(stat_line, width - 4), colors["bold"])
@@ -1380,12 +1380,12 @@ def _render_inspector_chart_view(win, snap, top, body_h, width, colors):
         0,
         channels_panel_h,
         width,
-        title=f"Canais Atuais ({len(channels)})",
+        title=f"Current Channels ({len(channels)})",
         border_attr=colors["cyan"],
         title_attr=colors["bold"],
     )
     if not channels:
-        msg = "Carregando canais..." if snap["inspector_loading"] else "Nenhum canal reportado."
+        msg = "Loading channels..." if snap["inspector_loading"] else "No channels reported."
         safe_addstr(win, ch_top + 1, 2, msg, colors["dim"])
     else:
         cap = channels_panel_h - 2
@@ -1402,30 +1402,30 @@ def _render_inspector_details_view(win, snap, top, body_h, width, colors):
     objid = sensor.get("objid", details.get("objid", ""))
 
     lines = [
-        ("Nome", details.get("name") or sensor.get("sensor") or "-"),
-        ("Tipo", details.get("sensortype") or "-"),
+        ("Name", details.get("name") or sensor.get("sensor") or "-"),
+        ("Type", details.get("sensortype") or "-"),
         ("Probe", details.get("probename") or sensor.get("probe") or "-"),
-        ("Grupo", details.get("parentgroupname") or sensor.get("group") or "-"),
-        ("Dispositivo", details.get("parentdevicename") or sensor.get("device") or "-"),
+        ("Group", details.get("parentgroupname") or sensor.get("group") or "-"),
+        ("Device", details.get("parentdevicename") or sensor.get("device") or "-"),
         ("Status", f"{details.get('statustext') or sensor.get('status') or '-'} ({details.get('statusid') or sensor.get('status_raw') or '-'})"),
-        ("Intervalo", f"{details['interval']}s" if details.get("interval") else "-"),
-        ("Último valor", details.get("lastvalue") or sensor.get("lastvalue") or "-"),
+        ("Interval", f"{details['interval']}s" if details.get("interval") else "-"),
+        ("Last value", details.get("lastvalue") or sensor.get("lastvalue") or "-"),
         ("Uptime", f"{details.get('uptime') or sensor.get('uptime') or '-'} ({details.get('uptimetime') or '-'})"),
         ("Downtime", f"{details.get('downtime') or sensor.get('downtime') or '-'} ({details.get('downtimetime') or '-'})"),
-        ("Desde", details.get("updownsince") or "-"),
-        ("Último Check", details.get("lastcheck") or sensor.get("lastcheck") or "-"),
-        ("Último Up", details.get("lastup") or sensor.get("lastup") or "-"),
-        ("Último Down", details.get("lastdown") or sensor.get("lastdown") or "-"),
+        ("Since", details.get("updownsince") or "-"),
+        ("Last Check", details.get("lastcheck") or sensor.get("lastcheck") or "-"),
+        ("Last Up", details.get("lastup") or sensor.get("lastup") or "-"),
+        ("Last Down", details.get("lastdown") or sensor.get("lastdown") or "-"),
         ("Tags", sensor.get("tags") or "-"),
-        ("Mensagem", details.get("lastmessage") or sensor.get("message") or "-"),
+        ("Message", details.get("lastmessage") or sensor.get("message") or "-"),
         ("URL", build_sensor_url(snap["prtg_url"], objid)),
         ("", ""),
-        ("Canais", f"{len(channels)} canal(is)"),
+        ("Channels", f"{len(channels)} channel(s)"),
     ]
     for ch in channels:
         lines.append((f"  {ch['name']}", f"{ch['lastvalue']} (raw: {ch['lastvalue_raw']})"))
 
-    draw_box(win, top, 0, body_h, width, title="Detalhes Completos & Canais", border_attr=colors["cyan"], title_attr=colors["bold"])
+    draw_box(win, top, 0, body_h, width, title="Full Details & Channels", border_attr=colors["cyan"], title_attr=colors["bold"])
     cap = body_h - 2
     scroll = max(0, min(snap["inspector_scroll"], max(0, len(lines) - cap)))
     for i in range(cap):
@@ -1447,9 +1447,9 @@ def _render_inspector_history_view(win, snap, top, body_h, width, colors):
     series = historic.get("series", {})
 
     rows = []
-    rows.append(("hdr", f"--- Eventos recentes do sensor (últimos 30 dias: {len(messages)}) ---"))
+    rows.append(("hdr", f"--- Recent sensor events (last 30 days: {len(messages)}) ---"))
     if not messages:
-        rows.append(("dim", "Nenhum evento registrado nos últimos 30 dias."))
+        rows.append(("dim", "No events recorded in the last 30 days."))
     else:
         for m in messages:
             rows.append(("msg", f"[{m['datetime']}] {m['status']}: {m['message']}"))
@@ -1458,9 +1458,9 @@ def _render_inspector_history_view(win, snap, top, body_h, width, colors):
     ch_name = None
     if hist_channels:
         ch_name = hist_channels[snap["inspector_channel_index"] % len(hist_channels)]
-    rows.append(("hdr", f"--- Tabela histórica ({snap['inspector_window']}) | Canal: {ch_name or '-'} ({len(timestamps)} pts) ---"))
+    rows.append(("hdr", f"--- Historical table ({snap['inspector_window']}) | Channel: {ch_name or '-'} ({len(timestamps)} pts) ---"))
     if not timestamps or not ch_name:
-        rows.append(("dim", "Sem pontos históricos para exibir."))
+        rows.append(("dim", "No historical points to display."))
     else:
         vals = series.get(ch_name, [])
         coverage = historic.get("coverage", [])
@@ -1470,7 +1470,7 @@ def _render_inspector_history_view(win, snap, top, body_h, width, colors):
             cov = coverage[idx] if idx < len(coverage) else ""
             rows.append(("pt", f"{ts:<31} | {val:>12} | {cov}"))
 
-    draw_box(win, top, 0, body_h, width, title="Histórico & Eventos do Sensor", border_attr=colors["cyan"], title_attr=colors["bold"])
+    draw_box(win, top, 0, body_h, width, title="Sensor History & Events", border_attr=colors["cyan"], title_attr=colors["bold"])
     cap = body_h - 2
     scroll = max(0, min(snap["inspector_scroll"], max(0, len(rows) - cap)))
     for i in range(cap):
@@ -1503,7 +1503,7 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
     height, width = win.getmaxyx()
 
     if height < 12 or width < 50:
-        msg = "Terminal muito pequeno (mínimo 50x12)."
+        msg = "Terminal too small (minimum 50x12)."
         safe_addstr(win, max(0, height // 2), max(0, (width - len(msg)) // 2), msg, colors["yellow"])
         win.noutrefresh()
         return
@@ -1535,10 +1535,10 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
 
     if snap["is_refreshing"]:
         spin = SPINNER_FRAMES[spinner_idx % len(SPINNER_FRAMES)]
-        mode_tag = f"{spin} ATUALIZANDO..."
+        mode_tag = f"{spin} REFRESHING..."
         mode_attr = colors["yellow"]
     elif snap["last_error"]:
-        mode_tag = f"▲ {snap['mode'].upper()} (ERRO)"
+        mode_tag = f"▲ {snap['mode'].upper()} (ERROR)"
         mode_attr = colors["red"]
     elif snap["mode"] == "live":
         mode_tag = "● LIVE"
@@ -1552,11 +1552,11 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
     if snap["live_loaded"] and snap["mode"] == "live":
         s_sum = summarize_all_sensors(snap["all_sensors"])
         counts = [
-            ("Sensores: ", f"{s_sum['total']}", colors["bold"]),
+            ("Sensors: ", f"{s_sum['total']}", colors["bold"]),
             ("Down: ", f"{s_sum['down'] + s_sum['partial']}", colors["red"] if (s_sum["down"] + s_sum["partial"]) else colors["green"]),
             ("Warn: ", f"{s_sum['warn']}", colors["yellow"] if s_sum["warn"] else colors["normal"]),
             ("Up: ", f"{s_sum['up']}", colors["green"]),
-            ("Pausados: ", f"{s_sum['paused']}", colors["dim"]),
+            ("Paused: ", f"{s_sum['paused']}", colors["dim"]),
         ]
     else:
         a_sum = summarize_alerts(snap["all_alerts"])
@@ -1564,7 +1564,7 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
             ("Total: ", f"{a_sum['total']}", colors["bold"]),
             ("Down: ", f"{a_sum['down']}", colors["red"] if a_sum["down"] else colors["green"]),
             ("Partial: ", f"{a_sum['partial']}", colors["yellow"] if a_sum["partial"] else colors["normal"]),
-            ("Outros: ", f"{a_sum['other']}", colors["magenta"] if a_sum["other"] else colors["normal"]),
+            ("Other: ", f"{a_sum['other']}", colors["magenta"] if a_sum["other"] else colors["normal"]),
         ]
     for lbl, val, val_attr in counts:
         if col_x + len(lbl) + len(val) + 2 >= width - 1:
@@ -1589,21 +1589,21 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
     updated_str = format_timestamp_local(snap["last_updated"])
     if snap["last_updated"] is not None:
         age_str = format_age(max(0.0, now_epoch - snap["last_updated"]))
-        updated_str = f"{updated_str} (há {age_str})"
+        updated_str = f"{updated_str} ({age_str} ago)"
     remaining = max(0, int(snap["next_refresh_at"] - now_mono))
     sort_label = SORT_LABELS.get(snap["sort_key"], snap["sort_key"])
-    filter_display = f'"{snap["filter_query"]}"' if snap["filter_query"] else "todos"
+    filter_display = f'"{snap["filter_query"]}"' if snap["filter_query"] else "all"
     extra = ""
     if snap["tab"] == "sensors":
         extra += f" | Status: {STATUS_FILTER_LABELS.get(snap['status_filter'], snap['status_filter'])}"
         if snap["device_filter"]:
-            extra += f" | Disp: {snap['device_filter']}"
+            extra += f" | Dev: {snap['device_filter']}"
         if snap["group_filter"]:
-            extra += f" | Grupo: {snap['group_filter']}"
+            extra += f" | Group: {snap['group_filter']}"
     elif snap["tab"] == "logs":
         range_lbl = dict(LOG_RANGES).get(snap["log_range"], snap["log_range"])
-        extra += f" | Período: {range_lbl}"
-    info_line = f"Atualizado: {updated_str} | Próx: {remaining}s | Ordem: {sort_label} | Busca: {filter_display}{extra}"
+        extra += f" | Period: {range_lbl}"
+    info_line = f"Updated: {updated_str} | Next: {remaining}s | Sort: {sort_label} | Filter: {filter_display}{extra}"
     safe_addstr(win, 3, 2, truncate_text(info_line, width - 4), colors["normal"])
 
     # 2. Optional error or notice banner
@@ -1653,16 +1653,16 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
         if not visible:
             if body_cap > 0:
                 if snap["is_refreshing"] and not snap["live_loaded"] and tab != "alerts":
-                    empty_msg = "Carregando dados do servidor PRTG..."
+                    empty_msg = "Loading data from the PRTG server..."
                     empty_attr = colors["yellow"]
                 elif tab == "alerts" and not snap["all_alerts"] and not snap["filter_query"]:
-                    empty_msg = "✓ Nenhum alerta ativo no momento"
+                    empty_msg = "✓ No active alerts right now"
                     empty_attr = colors["green"]
                 elif snap["mode"] == "state" and tab != "alerts":
-                    empty_msg = "Modo STATE mostra apenas alertas ativos (pressione [m] para modo LIVE)"
+                    empty_msg = "STATE mode only shows active alerts (press [m] for LIVE mode)"
                     empty_attr = colors["yellow"]
                 else:
-                    empty_msg = "Nenhum item encontrado para o filtro atual"
+                    empty_msg = "No items match the current filter"
                     empty_attr = colors["yellow"]
                 msg_y = body_top + max(0, (body_cap - 1) // 2)
                 msg_x = max(2, (width - len(empty_msg)) // 2)
@@ -1701,10 +1701,10 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
 
     # 5. Footer Bar
     if snap["filter_input_active"]:
-        footer_text = f"Filtro: {snap['filter_draft']}█   [Enter] Aplicar  [Esc] Cancelar"
+        footer_text = f"Filter: {snap['filter_draft']}█   [Enter] Apply  [Esc] Cancel"
         footer_attr = colors["yellow"]
     else:
-        footer_text = "[1-5/Tab] Abas  [Enter] Abrir/Detalhes  [/] Buscar  [f] Status  [s] Ordem  [r] Atualizar  [m] Modo  [o] Web  [?] Ajuda  [q] Sair"
+        footer_text = "[1-5/Tab] Tabs  [Enter] Open/Details  [/] Search  [f] Status  [s] Sort  [r] Refresh  [m] Mode  [o] Web  [?] Help  [q] Quit"
         footer_attr = colors["dim"]
     safe_addstr(win, footer_y, 1, truncate_text(footer_text, width - 2), footer_attr)
 
@@ -1724,7 +1724,7 @@ def _render_table_header(win, tab, y, inner_w, colors):
         rem = max(12, inner_w - reserved)
         dev_w = max(8, int(rem * 0.36))
         sen_w = max(8, rem - dev_w)
-        hdr = f"  {'ID':<{id_w}} {'STATUS':<{status_w}} {'DISPOSITIVO':<{dev_w}} {'SENSOR':<{sen_w}} {'VALOR':<{val_w}}"
+        hdr = f"  {'ID':<{id_w}} {'STATUS':<{status_w}} {'DEVICE':<{dev_w}} {'SENSOR':<{sen_w}} {'VALUE':<{val_w}}"
         if up_w:
             hdr += f" {'UPTIME':<{up_w}}"
     elif tab == "devices":
@@ -1734,20 +1734,20 @@ def _render_table_header(win, tab, y, inner_w, colors):
         rem = max(12, inner_w - (2 + id_w + 1 + host_w + 1 + cnt_w + 3))
         dev_w = max(10, int(rem * 0.55))
         grp_w = max(8, rem - dev_w)
-        hdr = f"  {'ID':<{id_w}} {'DISPOSITIVO':<{dev_w}} {'HOST':<{host_w}} {'GRUPO':<{grp_w}} {'D/W/U/P':<{cnt_w}}"
+        hdr = f"  {'ID':<{id_w}} {'DEVICE':<{dev_w}} {'HOST':<{host_w}} {'GROUP':<{grp_w}} {'D/W/U/P':<{cnt_w}}"
     elif tab == "groups":
         id_w = 6
         cnt_w = 24
         rem = max(12, inner_w - (2 + id_w + 1 + cnt_w + 3))
         grp_w = max(10, int(rem * 0.58))
         prb_w = max(8, rem - grp_w)
-        hdr = f"  {'ID':<{id_w}} {'GRUPO':<{grp_w}} {'PROBE':<{prb_w}} {'D/W/U/P':<{cnt_w}}"
+        hdr = f"  {'ID':<{id_w}} {'GROUP':<{grp_w}} {'PROBE':<{prb_w}} {'D/W/U/P':<{cnt_w}}"
     else:  # logs
         dt_w = 19
         st_w = 14
         src_w = max(12, min(22, inner_w // 4))
         msg_w = max(12, inner_w - (2 + dt_w + 1 + st_w + 1 + src_w + 2))
-        hdr = f"  {'DATA/HORA':<{dt_w}} {'STATUS':<{st_w}} {'ORIGEM':<{src_w}} {'MENSAGEM':<{msg_w}}"
+        hdr = f"  {'DATE/TIME':<{dt_w}} {'STATUS':<{st_w}} {'SOURCE':<{src_w}} {'MESSAGE':<{msg_w}}"
     safe_addstr(win, y, 2, truncate_text(hdr, inner_w), colors["bold"] | colors["cyan"])
 
 
@@ -1853,9 +1853,9 @@ def _render_table_row(win, tab, item, row_y, inner_w, is_selected, colors):
 def _render_bottom_details(win, snap, detail_top, detail_h, width, colors):
     tab = snap["tab"]
     title = (
-        "Detalhes do Sensor Selecionado"
+        "Selected Sensor Details"
         if tab in ("alerts", "sensors")
-        else "Detalhes do Item Selecionado"
+        else "Selected Item Details"
     )
     draw_box(
         win,
@@ -1869,21 +1869,21 @@ def _render_bottom_details(win, snap, detail_top, detail_h, width, colors):
     )
     selected = snap["selected"]
     if selected is None:
-        safe_addstr(win, detail_top + 1, 2, "Nenhum item selecionado.", colors["dim"])
+        safe_addstr(win, detail_top + 1, 2, "No item selected.", colors["dim"])
         return
 
     inner_d_w = width - 4
     if tab in ("alerts", "sensors"):
         sensor_line = (
             f"Sensor: {sanitize_line(selected.get('sensor', ''))}  |  "
-            f"Dispositivo: {sanitize_line(selected.get('device', ''))}  |  "
+            f"Device: {sanitize_line(selected.get('device', ''))}  |  "
             f"Status: {sanitize_line(selected.get('status', ''))} ({selected.get('status_raw', '')})"
         )
         safe_addstr(win, detail_top + 1, 2, truncate_text(sensor_line, inner_d_w), colors["bold"])
-        msg_clean = sanitize_line(selected.get("message", "")) or "(sem mensagem)"
+        msg_clean = sanitize_line(selected.get("message", "")) or "(no message)"
         url_str = build_sensor_url(snap["prtg_url"], selected.get("objid", ""))
         if detail_h >= 6:
-            wrapped = textwrap.wrap(f"Mensagem: {msg_clean}", width=max(20, inner_d_w)) or ["Mensagem: "]
+            wrapped = textwrap.wrap(f"Message: {msg_clean}", width=max(20, inner_d_w)) or ["Message: "]
             safe_addstr(win, detail_top + 2, 2, truncate_text(wrapped[0], inner_d_w), colors["normal"])
             if len(wrapped) > 1:
                 safe_addstr(win, detail_top + 3, 2, truncate_text(wrapped[1], inner_d_w), colors["normal"])
@@ -1893,33 +1893,33 @@ def _render_bottom_details(win, snap, detail_top, detail_h, width, colors):
                     win,
                     detail_top + 3,
                     2,
-                    truncate_text(f"Último valor: {val_str}  |  [Enter] Gráficos, canais e histórico", inner_d_w),
+                    truncate_text(f"Last value: {val_str}  |  [Enter] Charts, channels and history", inner_d_w),
                     colors["dim"],
                 )
             safe_addstr(win, detail_top + 4, 2, truncate_text(f"URL: {url_str}", inner_d_w), colors["cyan"])
         else:
             safe_addstr(win, detail_top + 2, 2, truncate_text(f"Msg: {msg_clean}", inner_d_w), colors["normal"])
     elif tab == "devices":
-        line1 = f"Dispositivo: {selected.get('device', '')} | Host: {selected.get('host', '')} | Grupo: {selected.get('group', '')}"
+        line1 = f"Device: {selected.get('device', '')} | Host: {selected.get('host', '')} | Group: {selected.get('group', '')}"
         line2 = (
-            f"Sensores -> Down: {selected.get('down', 0)} | Partial: {selected.get('partial', 0)} | "
-            f"Warn: {selected.get('warn', 0)} | Up: {selected.get('up', 0)} | Pausados: {selected.get('paused', 0)}"
+            f"Sensors -> Down: {selected.get('down', 0)} | Partial: {selected.get('partial', 0)} | "
+            f"Warn: {selected.get('warn', 0)} | Up: {selected.get('up', 0)} | Paused: {selected.get('paused', 0)}"
         )
         safe_addstr(win, detail_top + 1, 2, truncate_text(line1, inner_d_w), colors["bold"])
         safe_addstr(win, detail_top + 2, 2, truncate_text(line2, inner_d_w), colors["normal"])
         if detail_h >= 6:
-            safe_addstr(win, detail_top + 3, 2, "Pressione [Enter] para ver os sensores deste dispositivo.", colors["dim"])
+            safe_addstr(win, detail_top + 3, 2, "Press [Enter] to view this device's sensors.", colors["dim"])
             safe_addstr(win, detail_top + 4, 2, truncate_text(f"URL: {build_object_url(snap['prtg_url'], 'devices', selected)}", inner_d_w), colors["cyan"])
     elif tab == "groups":
-        line1 = f"Grupo: {selected.get('group', '')} | Probe: {selected.get('probe', '') or '-'}"
+        line1 = f"Group: {selected.get('group', '')} | Probe: {selected.get('probe', '') or '-'}"
         line2 = (
-            f"Sensores -> Down: {selected.get('down', 0)} | Warn: {selected.get('warn', 0)} | "
-            f"Up: {selected.get('up', 0)} | Pausados: {selected.get('paused', 0)}"
+            f"Sensors -> Down: {selected.get('down', 0)} | Warn: {selected.get('warn', 0)} | "
+            f"Up: {selected.get('up', 0)} | Paused: {selected.get('paused', 0)}"
         )
         safe_addstr(win, detail_top + 1, 2, truncate_text(line1, inner_d_w), colors["bold"])
         safe_addstr(win, detail_top + 2, 2, truncate_text(line2, inner_d_w), colors["normal"])
         if detail_h >= 6:
-            safe_addstr(win, detail_top + 3, 2, "Pressione [Enter] para ver os sensores deste grupo.", colors["dim"])
+            safe_addstr(win, detail_top + 3, 2, "Press [Enter] to view this group's sensors.", colors["dim"])
             safe_addstr(win, detail_top + 4, 2, truncate_text(f"URL: {build_object_url(snap['prtg_url'], 'groups', selected)}", inner_d_w), colors["cyan"])
     else:  # logs
         line1 = f"[{selected.get('datetime', '')}] {selected.get('status', '')} | {selected.get('name', '')} ({selected.get('parent', '')})"
@@ -2005,7 +2005,7 @@ def handle_key(
         return False
     if key_char in ("1", "2", "3", "4", "5"):
         tab = state.set_tab(int(key_char) - 1)
-        state.set_notice(f"Aba: {dict(TABS)[tab].split(':', 1)[-1]}", duration=1.5)
+        state.set_notice(f"Tab: {dict(TABS)[tab].split(':', 1)[-1]}", duration=1.5)
     elif key_code == 9:  # Tab
         with state.lock:
             next_idx = (state.tab_index + 1) % len(TABS)
@@ -2037,7 +2037,7 @@ def handle_key(
             state.group_filter = None
             state.status_filter_index = 0
             state.scroll_offset = 0
-        state.set_notice("Filtros limpos.", duration=2.0)
+        state.set_notice("Filters cleared.", duration=2.0)
     elif key_char in ("f", "F"):
         with state.lock:
             tab = state.current_tab_locked()
@@ -2047,15 +2047,15 @@ def handle_key(
         state.set_notice(f"Status: {STATUS_FILTER_LABELS.get(new_sf, new_sf)}", duration=2.5)
     elif key_char in ("s", "S"):
         new_sort = state.cycle_sort()
-        state.set_notice(f"Ordenação: {SORT_LABELS.get(new_sort, new_sort)}", duration=2.5)
+        state.set_notice(f"Sort: {SORT_LABELS.get(new_sort, new_sort)}", duration=2.5)
     elif key_char in ("t", "T"):
         if state.current_tab() == "logs":
             _, label = state.cycle_log_range()
-            state.set_notice(f"Período dos logs: {label}", duration=2.5)
+            state.set_notice(f"Log period: {label}", duration=2.5)
             refresh_cb(force=True)
     elif key_char in ("m", "M"):
         new_mode = state.toggle_mode()
-        state.set_notice(f"Modo alterado para {new_mode.upper()}", duration=2.5)
+        state.set_notice(f"Mode switched to {new_mode.upper()}", duration=2.5)
         refresh_cb(force=True)
     elif key_char in ("o", "O"):
         selected = state.selected_alert()
@@ -2076,7 +2076,7 @@ def handle_key(
                     state.status_filter_index = 0
                     state.tab_index = 1
                     state.scroll_by_tab["sensors"] = 0
-                state.set_notice(f"Sensores de {selected.get('device', '')}", duration=2.5)
+                state.set_notice(f"Sensors for {selected.get('device', '')}", duration=2.5)
             elif tab == "groups":
                 with state.lock:
                     state.group_filter = selected.get("group")
@@ -2084,7 +2084,7 @@ def handle_key(
                     state.status_filter_index = 0
                     state.tab_index = 1
                     state.scroll_by_tab["sensors"] = 0
-                state.set_notice(f"Sensores do grupo {selected.get('group', '')}", duration=2.5)
+                state.set_notice(f"Sensors in group {selected.get('group', '')}", duration=2.5)
             else:
                 open_cb(selected)
     elif key_char == "?":
@@ -2145,7 +2145,7 @@ def _handle_inspector_key(
             state.inspector_window_index = (state.inspector_window_index + 1) % len(HISTORY_WINDOWS)
             new_win = state.current_inspector_window_locked()
             objid = state.inspector_sensor.get("objid") if state.inspector_sensor else None
-        state.set_notice(f"Janela histórica: {new_win}", duration=2.0)
+        state.set_notice(f"History window: {new_win}", duration=2.0)
         if inspector_refresh_cb is not None and objid:
             inspector_refresh_cb(objid=objid, window_key=new_win, history_only=True)
     elif key_char in ("r", "R"):
@@ -2198,9 +2198,9 @@ def _run_curses_loop(stdscr, runner, use_color=True):
         else:
             url = build_object_url(runner.state.prtg_url, tab, item)
         if open_sensor_url(url):
-            runner.state.set_notice(f"Abrindo objeto {item.get('objid', '')} no navegador...", duration=3.0)
+            runner.state.set_notice(f"Opening object {item.get('objid', '')} in the browser...", duration=3.0)
         else:
-            runner.state.set_notice("Não foi possível abrir URL no navegador.", duration=3.0)
+            runner.state.set_notice("Could not open URL in the browser.", duration=3.0)
 
     runner.trigger_refresh(force=False)
 
@@ -2272,18 +2272,18 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.interval is not None and args.interval <= 0:
-        print("Erro: --interval deve ser maior que zero.", file=sys.stderr)
+        print("Error: --interval must be greater than zero.", file=sys.stderr)
         return 1
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        print("Erro: prtg_tui.py requer um terminal interativo (TTY).", file=sys.stderr)
+        print("Error: prtg_tui.py requires an interactive terminal (TTY).", file=sys.stderr)
         return 1
 
     config_path = resolve_config_path(args.config_file)
     try:
         monitor = PRTGMonitor(config_path, load_state=False)
     except ConfigError as e:
-        print(f"Erro de configuração: {e}", file=sys.stderr)
+        print(f"Configuration error: {e}", file=sys.stderr)
         return 1
 
     refresh_interval = args.interval if args.interval is not None else monitor.config.get("poll_interval_seconds", 60)
