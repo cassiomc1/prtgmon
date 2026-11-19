@@ -12,3 +12,7 @@ monitor_error.log
 # Cache do Python
 __pycache__/
 *.pyc
+
+# Pacotes macOS gerados localmente
+*.app/
+*.iconset/
