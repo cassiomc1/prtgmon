@@ -23,6 +23,15 @@ PLACEHOLDER_URL = "https://your-prtg-server.example.com"
 PLACEHOLDER_TOKEN = "YOUR_API_TOKEN_HERE"
 _APITOKEN_QUERY_RE = re.compile(r"(apitoken=)[^&\s'\"]+", re.IGNORECASE)
 _active_alert_processes = []
+_log_handler = None
+
+
+def set_log_handler(handler):
+    """Installs an optional log sink callback and returns the previous handler."""
+    global _log_handler
+    previous = _log_handler
+    _log_handler = handler
+    return previous
 
 
 class ConfigError(ValueError):
@@ -47,6 +56,10 @@ def _use_color():
 
 
 def log(message, level="info"):
+    handler = _log_handler
+    if handler is not None:
+        handler(message, level)
+        return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     use_color = _use_color()
     if level == "info":

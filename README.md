@@ -21,11 +21,15 @@ Este projeto é um script leve em Python que monitora ativamente seu servidor PR
 
 ## 📁 Estrutura de Arquivos
 
-- [prtg_monitor.py](prtg_monitor.py) - Script principal de monitoramento e CLI.
+- [prtg_monitor.py](prtg_monitor.py) - Script principal de monitoramento, reconciliação e notificações CLI/LaunchAgent.
+- [prtg_api.py](prtg_api.py) - Cliente JSON somente leitura para explorar sensores, dispositivos, grupos, canais, histórico e logs do PRTG.
+- [prtg_tui.py](prtg_tui.py) - Interface gráfica interativa no terminal (`curses`) com abas, gráficos Braille e inspetor de sensores.
+- [scripts/install_macos_app.py](scripts/install_macos_app.py) - Empacotador e instalador do aplicativo macOS (`PRTG Monitor TUI.app`).
+- [assets/prtg-monitor-tui.png](assets/prtg-monitor-tui.png) - Ícone fonte do aplicativo macOS.
 - [config.json.example](config.json.example) - Modelo de configuração (copie para `config.json`, ignorado pelo Git).
 - [docs/architecture.md](docs/architecture.md) - Detalhes de arquitetura, reconciliação e operação.
 - [AGENTS.md](AGENTS.md) - Contratos técnicos e invariantes de confiabilidade.
-- [tests/test_prtg_monitor.py](tests/test_prtg_monitor.py) - Suíte de testes unitários (`unittest`).
+- [tests/](tests/) - Suíte de testes unitários (`test_prtg_monitor.py`, `test_prtg_api.py`, `test_prtg_tui.py`, `test_install_macos_app.py`).
 
 ---
 
@@ -110,6 +114,51 @@ Flags disponíveis via CLI:
 - `--check-config`: Valida o arquivo de configuração e sai sem consultar o PRTG.
 - `--once`: Executa um único ciclo de coleta/reconciliação e encerra com código `0` (sucesso) ou `1` (falha).
 - `--no-startup-notification`: Suprime o banner de inicialização nesta execução.
+
+---
+
+## 🖥️ Interface Gráfica no Terminal (TUI) e App macOS
+
+Você pode explorar todo o servidor PRTG diretamente no terminal com o [prtg_tui.py](prtg_tui.py) (ou pelo comando `prtgmon-tui` / aplicativo `PRTG Monitor TUI.app`):
+
+```bash
+python3 prtg_tui.py
+# ou acompanhando apenas o state.json do LaunchAgent sem consultas extras à API:
+python3 prtg_tui.py --from-state
+```
+
+### Instalar como Aplicativo macOS (`/Applications/PRTG Monitor TUI.app`)
+
+```bash
+python3 scripts/install_macos_app.py
+# ou para instalar na pasta ~/Applications do usuário:
+python3 scripts/install_macos_app.py --dest ~/Applications
+```
+
+### Recursos da TUI
+- **5 Abas (`1`–`5` ou `Tab`):**
+  1. `Alertas`: sensores em alerta ativo (carrega `state.json` instantaneamente ao abrir).
+  2. `Sensores`: todos os sensores do PRTG com filtro por status (`f`: Todos/Alertas/Down/Warning/Up/Pausados/Outros) e ordenação (`s`).
+  3. `Dispositivos`: lista todos os dispositivos e contadores de saúde; `Enter` abre os sensores daquele dispositivo.
+  4. `Grupos`: lista grupos/probes; `Enter` abre os sensores daquele grupo.
+  5. `Logs`: histórico global de eventos do PRTG (`t` alterna entre Hoje, 7 dias e 30 dias).
+- **Busca global (`/`):** filtra em tempo real por nome, dispositivo, grupo, probe, tags, ID ou mensagem (`Enter` aplica, `Esc` cancela, `c` limpa filtros).
+- **Inspetor do Sensor (`Enter` em um sensor):**
+  - **Gráfico Braille + Canais (`1`):** gráfico de linha em alta resolução Unicode Braille, com estatísticas (`Últ`, `Mín`, `Méd`, `Máx`), troca de canal (`n`/`p` ou `←`/`→`) e janela temporal (`t`: `1h`, `2h`, `24h`, `7d`, `30d`).
+  - **Detalhes Completos (`2`):** metadados completos, uptime/downtime, intervalo, tags e todos os canais ao vivo.
+  - **Histórico & Eventos (`3`):** eventos recentes do sensor (30 dias) e tabela cronológica dos pontos históricos.
+  - `Esc` ou `b` retorna para a lista; `o` abre no navegador.
+
+Opções de linha de comando:
+- `--from-state`: inicia observando o `state.json` atualizado pelo LaunchAgent.
+- `--interval <segundos>`: define o intervalo de atualização automática no modo `LIVE`.
+- `--no-color`: desativa cores no terminal.
+
+Atalhos principais:
+- `1`–`5` / `Tab`: alternar abas | `↑`/`↓` ou `j`/`k`: navegar (`g`/`G` início/fim, `PgUp`/`PgDn` páginas)
+- `/`: buscar | `c`: limpar filtros | `f`: filtrar status | `s`: ordenar | `r`: atualizar
+- `Enter`: abrir inspetor do sensor (ou filtrar sensores do dispositivo/grupo)
+- `m`: alternar modo `LIVE` / `STATE` | `o`: abrir no navegador | `?`: ajuda | `q`: sair
 
 ---
 
