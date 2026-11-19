@@ -3,8 +3,10 @@
   "apitoken": "YOUR_API_TOKEN_HERE",
   "poll_interval_seconds": 60,
   "filter_statuses": [5, 14],
-  "verify_ssl": false,
+  "verify_ssl": true,
   "notification_type": "banner",
   "sound_name": "Glass",
-  "notify_on_resolve": true
+  "notify_on_resolve": true,
+  "notify_on_startup": true,
+  "state_file": "state.json"
 }

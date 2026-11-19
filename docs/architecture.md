@@ -1,26 +1,54 @@
 # PRTG monitor architecture and operations
 
-## Polling and reconciliation
+## Polling and atomic reconciliation
 
-`prtg_monitor.py` loads local configuration, requests a paginated PRTG XML sensor snapshot, parses relevant sensor states, compares that complete snapshot with the active-alert state, persists the next state, and sends macOS notifications for new failures or resolutions.
+`prtg_monitor.py` loads and validates local configuration, restores previously persisted alert state (`state.json`) when available, fetches a complete paginated PRTG XML sensor snapshot (`/api/table.xml`), checks bounded rotating recovery status for missing alerts (`/api/getobjectstatus.htm`), persists the complete next state atomically, and only then delivers macOS notifications.
 
-The central reliability rule is that a failed request, malformed XML document, or incomplete pagination result is **not** an empty snapshot. Keep the previous active state in that case; otherwise an API outage would generate false recoveries.
+Each `run_cycle()` follows four strict phases:
 
-## Configuration
+1. **Compute next state without mutation**: Collect all pages (`sortby=objid`, validating `totalcount`, `listend`, response size limit `MAX_RESPONSE_BYTES`, page limit `MAX_PAGES`, and duplicate/missing `objid` values). Build `next_alerts` and `new_alerts`, then probe up to `status_lookup_limit` missing sensors via `/api/getobjectstatus.htm`. A sensor is resolved only when its status equals `STATUS_UP` (`3`). Rotation tracks the next unchecked sensor ID so resolving an entry mid-window does not skip subsequent sensors.
+2. **Persist atomically**: Write the complete next `active_alerts` and `status_lookup_offset` payload via `tempfile.mkstemp(..., dir=state_dir)`, `chmod 0600`, `fsync`, and `os.replace` before mutating in-memory state. If persistence fails, `run_cycle()` aborts and keeps the previous state.
+3. **Commit in-memory state**: Update `self.active_alerts`, `self.status_lookup_offset`, and `self.first_run` together.
+4. **Deliver notifications**: Dispatch `notify_alert()` for new failures and `notify_resolution()` for confirmed recoveries (suppressed on an uninitialized `first_run` without prior persisted state).
 
-Copy `config.json.example` to a local, untracked `config.json`. Configure the PRTG URL, API token, poll interval, monitored raw status codes, TLS verification, notification type, sound, and resolution notification behavior. Store the token as a secret and rotate it if it ever reaches a shell history, backup, or repository.
+The central reliability rule is that a failed HTTP/network request, HTTP error status, malformed XML document, PRTG `<error>` payload, or incomplete pagination result is **never** treated as an empty snapshot. The previous active state is preserved to avoid false recovery storms.
 
-`verify_ssl=false` is a lab-only escape hatch for a controlled, self-signed endpoint. Production monitoring should validate a trusted certificate.
+## Configuration and security
+
+Copy `config.json.example` to a local, untracked `config.json` (`chmod 0600`). When `config.json` is absent, `PRTGMonitor` writes a default template with `0600` permissions and raises `ConfigError` so it never polls placeholder hosts.
+
+`validate_config()` rejects non-object JSON, invalid or placeholder `prtg_url`/`apitoken`, non-positive `poll_interval_seconds`, empty or non-integer `filter_statuses`, non-boolean flags, invalid `notification_type`, and invalid timeout/limit settings.
+
+- `verify_ssl` defaults to `true`. `verify_ssl=false` is strictly a controlled-lab option for self-signed certificates and emits a warning.
+- API tokens are never logged (not even a prefix) and `redact_secrets()` strips `apitoken=...` query parameters and raw token occurrences from HTTP/network/PRTG error logs.
+- XML parsing prefers `<message_raw>` / `<message_RAW>` over HTML-formatted `<message>`.
 
 ## Notification behavior
 
-The monitor supports `banner`, `alert`, and `both`. Alert de-duplication is keyed by the active sensor occurrence; a sensor should produce one initial failure notice and, if enabled, one recovery notice.
+AppleScript execution passes all dynamic text (`message`, `title`, `subtitle`, `sound_name`) via `osascript -e ... -- <args>` (`on run argv`), eliminating string interpolation injection, stripping NUL bytes, enforcing `OSASCRIPT_TIMEOUT_SECONDS`, and reaping background dialog processes.
 
-## Validation and deployment
+The `notification_type` modes remain strictly distinct:
+
+| `notification_type` | Startup notice | New failure (`notify_alert`) | Confirmed recovery (`notify_resolution`) |
+| --- | --- | --- | --- |
+| `banner` | macOS banner (if `notify_on_startup`) | macOS banner | macOS banner (if `notify_on_resolve`) |
+| `alert` | None | Modal dialog (`caution` icon) | Modal dialog (`note` icon, if `notify_on_resolve`) |
+| `both` | macOS banner (if `notify_on_startup`) | macOS banner + modal dialog | macOS banner + modal dialog (if `notify_on_resolve`) |
+
+## CLI, lifecycle, and LaunchAgent deployment
+
+- `python3 prtg_monitor.py --check-config <config>` validates config and exits without polling.
+- `python3 prtg_monitor.py --once <config>` runs one poll/reconciliation cycle and exits `0` on success or `1` on failure.
+- `python3 prtg_monitor.py --no-startup-notification <config>` suppresses the startup banner.
+- `start()` handles `SIGINT` and `SIGTERM` via a `threading.Event` so `launchctl bootout` terminates cleanly without interrupting an active write, and `log()` disables ANSI colors automatically when stdout is not a TTY (or when `NO_COLOR` is set).
+
+For a LaunchAgent deployment, use a dedicated installation directory, absolute paths valid on the target Mac for Python and the script, and writable log paths (such as `~/Library/Logs/prtgmon/`). Never copy a developer checkout path into a reusable launchd file.
+
+## Validation
 
 ```bash
 python3 -m unittest discover -v
-python3 prtg_monitor.py
+/usr/bin/python3 -m unittest discover -v
+python3 prtg_monitor.py --check-config config.json
+python3 prtg_monitor.py --once config.json
 ```
-
-For a LaunchAgent deployment, use a dedicated installation directory, absolute paths to Python and the script, and writable log paths. After a change, reload or kickstart the agent, verify its running state, and inspect a full poll cycle for network, XML, and PRTG API errors. Do not copy a developer checkout path into a reusable launchd file.
