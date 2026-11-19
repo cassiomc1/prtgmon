@@ -161,7 +161,7 @@ class PRTGTUITests(unittest.TestCase):
             alerts, updated, err = load_state_snapshot(missing)
             self.assertEqual([], alerts)
             self.assertIsNone(updated)
-            self.assertIn("não encontrado", err)
+            self.assertIn("not found", err)
 
             state_file = os.path.join(tmpdir, "state.json")
             with open(state_file, "w", encoding="utf-8") as f:
@@ -194,7 +194,7 @@ class PRTGTUITests(unittest.TestCase):
             alerts, updated, err = load_state_snapshot(state_file)
             self.assertIsNone(alerts)
             self.assertIsNone(updated)
-            self.assertIn("Falha ao ler estado", err)
+            self.assertIn("Failed to read state", err)
 
     def test_summarize_filter_and_sort_modes(self):
         alerts = sample_alerts()
@@ -406,9 +406,9 @@ class PRTGTUITests(unittest.TestCase):
         # Render all 3 inspector views via FakeWindow
         win = FakeWindow(34, 110)
         for key_view, expected_text in [
-            ("1", "Gráfico Histórico"),
-            ("2", "Detalhes Completos"),
-            ("3", "Histórico & Eventos"),
+            ("1", "Historical Chart"),
+            ("2", "Full Details"),
+            ("3", "Sensor History"),
         ]:
             handle_key(key_view, state, lambda force=False: None, opened.append)
             render_tui(win, state)
@@ -462,7 +462,7 @@ class PRTGTUITests(unittest.TestCase):
         state.filter_input_active = True
         state.filter_draft = "pg"
         render_tui(win, state)
-        self.assertIn("Filtro: pg█", win.rendered_text())
+        self.assertIn("Filter: pg█", win.rendered_text())
         state.filter_input_active = False
 
         state.last_error = "PRTG server returned HTTP 503"
@@ -472,16 +472,16 @@ class PRTGTUITests(unittest.TestCase):
 
         state.show_help = True
         render_tui(win, state)
-        self.assertIn("Ajuda - PRTG Monitor TUI", win.rendered_text())
+        self.assertIn("Help - PRTG Monitor TUI", win.rendered_text())
         state.show_help = False
 
         state.apply_snapshot([], updated_at=time.time())
         render_tui(win, state)
-        self.assertIn("Nenhum alerta ativo no momento", win.rendered_text())
+        self.assertIn("No active alerts right now", win.rendered_text())
 
         tiny = FakeWindow(10, 40)
         render_tui(tiny, state)
-        self.assertIn("Terminal muito pequeno", tiny.rendered_text())
+        self.assertIn("Terminal too small", tiny.rendered_text())
 
     def test_open_sensor_url_validates_scheme(self):
         url = build_sensor_url("https://x.bytesec.app/", "2069")

@@ -19,9 +19,9 @@ HISTORY_WINDOWS = (
     ("30d", 720, 14400),
 )
 LOG_RANGES = (
-    ("today", "Hoje"),
-    ("7days", "7 dias"),
-    ("30days", "30 dias"),
+    ("today", "Today"),
+    ("7days", "7 days"),
+    ("30days", "30 days"),
 )
 MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -203,7 +203,7 @@ class PRTGClient:
                     return None, f"PRTG HTTP {response.status}"
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
                 if len(raw) > MAX_RESPONSE_BYTES:
-                    return None, "Resposta da API excedeu o limite máximo."
+                    return None, "API response exceeded the maximum size limit."
             payload = json.loads(raw.decode("utf-8", errors="replace"))
             if isinstance(payload, dict) and payload.get("Error"):
                 return None, f"PRTG: {redact_secrets(payload.get('Error'), self.apitoken)}"
@@ -211,11 +211,11 @@ class PRTGClient:
         except urllib.error.HTTPError as e:
             return None, f"PRTG HTTP {e.code}: {redact_secrets(e.reason, self.apitoken)}"
         except urllib.error.URLError as e:
-            return None, f"Erro de rede: {redact_secrets(e.reason, self.apitoken)}"
+            return None, f"Network error: {redact_secrets(e.reason, self.apitoken)}"
         except json.JSONDecodeError as e:
-            return None, f"JSON inválido do PRTG: {e}"
+            return None, f"Invalid PRTG JSON: {e}"
         except Exception as e:
-            return None, f"Erro inesperado: {redact_secrets(e, self.apitoken)}"
+            return None, f"Unexpected error: {redact_secrets(e, self.apitoken)}"
 
     def _fetch_paginated_table(self, content, columns, extra_params=None, page_size=500, max_pages=20):
         collected = []
@@ -234,11 +234,11 @@ class PRTGClient:
             if err is not None:
                 return None, err
             if not isinstance(data, dict):
-                return None, f"Resposta inválida para {content}."
+                return None, f"Invalid response for {content}."
 
             rows = data.get(content)
             if not isinstance(rows, list):
-                return None, f"Campo '{content}' ausente na resposta da API."
+                return None, f"Field '{content}' missing in the API response."
 
             collected.extend(rows)
             treesize = safe_int(data.get("treesize"), len(collected))
@@ -246,14 +246,14 @@ class PRTGClient:
             if len(rows) < page_size or not rows or start >= treesize:
                 return collected, None
 
-        return None, f"Paginação de {content} excedeu o limite de páginas."
+        return None, f"Pagination of {content} exceeded the page limit."
 
     def fetch_server_status(self):
         data, err = self._fetch_json("/api/getstatus.htm", timeout=10)
         if err is not None:
             return None, err
         if not isinstance(data, dict):
-            return None, "Resposta inválida em getstatus.htm."
+            return None, "Invalid response from getstatus.htm."
         return data, None
 
     def fetch_all_sensors(self):
@@ -371,7 +371,7 @@ class PRTGClient:
             return None, err
         raw = data.get("sensordata") if isinstance(data, dict) else None
         if not isinstance(raw, dict):
-            return None, f"Detalhes indisponíveis para o sensor {objid}."
+            return None, f"Details unavailable for sensor {objid}."
 
         return {
             "objid": str(objid),
@@ -411,7 +411,7 @@ class PRTGClient:
             return None, err
         rows = data.get("channels") if isinstance(data, dict) else None
         if not isinstance(rows, list):
-            return None, f"Canais indisponíveis para o sensor {objid}."
+            return None, f"Channels unavailable for sensor {objid}."
 
         channels = []
         for item in rows:
@@ -447,7 +447,7 @@ class PRTGClient:
         if err is not None:
             return None, err
         if not isinstance(data, dict) or not isinstance(data.get("histdata"), list):
-            return None, f"Histórico indisponível para o sensor {objid}."
+            return None, f"History unavailable for sensor {objid}."
         return extract_historic_series(data.get("histdata", [])), None
 
     def fetch_messages(self, objid=None, drel="7days", count=150):
@@ -466,7 +466,7 @@ class PRTGClient:
             return None, err
         rows = data.get("messages") if isinstance(data, dict) else None
         if not isinstance(rows, list):
-            return None, "Logs indisponíveis na resposta da API."
+            return None, "Logs unavailable in the API response."
 
         messages = []
         for item in rows:
