@@ -4,6 +4,7 @@ import collections
 import curses
 import json
 import locale
+import math
 import os
 import subprocess
 import sys
@@ -11,7 +12,7 @@ import textwrap
 import threading
 import time
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from prtg_api import (
     HISTORY_WINDOWS,
@@ -87,6 +88,61 @@ _BRAILLE_BITS = (
     (0x04, 0x20),
     (0x40, 0x80),
 )
+
+SAO_PAULO_TZ = timezone(timedelta(hours=-3), name="GMT-3")
+SAO_PAULO_LABEL = "São Paulo GMT-3"
+
+
+def sao_paulo_datetime(epoch_ts=None):
+    """Returns a timezone-aware datetime in GMT-3 (São Paulo) for the given epoch timestamp."""
+    ts = time.time() if epoch_ts is None else float(epoch_ts)
+    try:
+        return datetime.fromtimestamp(ts, tz=SAO_PAULO_TZ)
+    except (OSError, OverflowError, ValueError):
+        return datetime.fromtimestamp(0.0, tz=SAO_PAULO_TZ)
+
+
+def render_analog_clock_gmt3(epoch_ts=None, width=7, height=3):
+    """Renders a Unicode Braille analog clock dial for GMT-3 (São Paulo) returning (dial_lines, time_str, tz_str)."""
+    width = max(5, int(width))
+    height = max(3, int(height))
+    pixel_w = width * 2
+    pixel_h = height * 4
+    grid = [[0] * width for _ in range(height)]
+
+    cx = (pixel_w - 1) / 2.0
+    cy = (pixel_h - 1) / 2.0
+    rx = max(2.0, cx - 0.6)
+    ry = max(2.0, cy - 0.6)
+
+    def plot(px, py):
+        ix = int(round(px))
+        iy = int(round(py))
+        if 0 <= ix < pixel_w and 0 <= iy < pixel_h:
+            grid[iy // 4][ix // 2] |= _BRAILLE_BITS[iy % 4][ix % 2]
+
+    # Outer dial ring (24 steps for crisp cardinal and 5-minute marks)
+    for step in range(24):
+        angle = (2.0 * math.pi * step) / 24.0
+        plot(cx + rx * math.sin(angle), cy - ry * math.cos(angle))
+
+    dt = sao_paulo_datetime(epoch_ts)
+    sec_frac = dt.second / 60.0
+    min_frac = (dt.minute + sec_frac) / 60.0
+    hour_frac = ((dt.hour % 12) + min_frac) / 12.0
+
+    cx_i = int(round(cx))
+    cy_i = int(round(cy))
+    plot(cx_i, cy_i)
+
+    for frac, scale in ((hour_frac, 0.52), (min_frac, 0.78), (sec_frac, 0.88)):
+        angle = 2.0 * math.pi * frac
+        tx = int(round(cx + (rx * scale) * math.sin(angle)))
+        ty = int(round(cy - (ry * scale) * math.cos(angle)))
+        _draw_line_on_bitmap(grid, cx_i, cy_i, tx, ty, pixel_w, pixel_h)
+
+    dial_lines = ["".join(chr(0x2800 + cell) for cell in row) for row in grid]
+    return dial_lines, dt.strftime("%H:%M:%S"), SAO_PAULO_LABEL
 
 
 def resolve_config_path(explicit_path=None):
@@ -1233,7 +1289,35 @@ def _render_help_modal(win, snap, height, width, colors):
         safe_addstr(win, top + 1 + idx, left + 2, truncate_text(line, box_w - 4), attr)
 
 
-def _render_inspector(win, snap, height, width, now_mono, spinner_idx, colors):
+def _render_top_right_clock(win, width, now_epoch, colors):
+    """Renders the GMT-3 (São Paulo) Braille analog clock widget in the top-right header box (rows 1..3)."""
+    dial_w = 7
+    dial_lines, time_str, _ = render_analog_clock_gmt3(now_epoch, width=dial_w, height=3)
+    if width >= 80:
+        info_lines = ("São Paulo", time_str, "GMT-3")
+        info_w = max(len(s) for s in info_lines)
+        widget_w = 1 + info_w + 1 + dial_w
+        if width - widget_w - 2 < 42:
+            return 0
+        start_x = width - widget_w - 2
+        for idx in range(3):
+            row_y = 1 + idx
+            safe_addstr(win, row_y, start_x, "│", colors["dim"])
+            lbl = f"{info_lines[idx]:>{info_w}}"
+            lbl_attr = colors["bold"] if idx == 1 else (colors["cyan"] if idx == 0 else colors["dim"])
+            safe_addstr(win, row_y, start_x + 1, lbl, lbl_attr)
+            safe_addstr(win, row_y, start_x + 1 + info_w + 1, dial_lines[idx], colors["cyan"] | colors["bold"])
+        return widget_w + 2
+
+    if width >= 50:
+        start_x = width - dial_w - 2
+        for idx in range(3):
+            safe_addstr(win, 1 + idx, start_x, dial_lines[idx], colors["cyan"] | colors["bold"])
+        return dial_w + 2
+    return 0
+
+
+def _render_inspector(win, snap, height, width, now_mono, now_epoch, spinner_idx, colors):
     sensor = snap["inspector_sensor"] or {}
     details = snap["inspector_details"] or {}
     objid = sensor.get("objid", details.get("objid", ""))
@@ -1249,6 +1333,8 @@ def _render_inspector(win, snap, height, width, now_mono, spinner_idx, colors):
     top_h = 5
     title = f"Sensor #{objid}: {truncate_text(sanitize_line(name), max(12, width // 2))}"
     draw_box(win, 0, 0, top_h, width, title=title, border_attr=colors["cyan"], title_attr=colors["bold"])
+    clock_reserved = _render_top_right_clock(win, width, now_epoch, colors)
+    right_limit = width - clock_reserved - 2
 
     if snap["inspector_loading"]:
         spin = SPINNER_FRAMES[spinner_idx % len(SPINNER_FRAMES)]
@@ -1257,29 +1343,31 @@ def _render_inspector(win, snap, height, width, now_mono, spinner_idx, colors):
     path_str = " ➔ ".join(p for p in (probe, group, device) if p) or "-"
     safe_addstr(win, 1, 2, f"{dot} {status_txt}", dot_attr)
     info_x = 2 + len(f"{dot} {status_txt}") + 3
-    if info_x < width - 10:
+    if info_x < right_limit - 8:
         stype = details.get("sensortype") or ""
         interval = f" | Interval: {details['interval']}s" if details.get("interval") else ""
         meta = f"Path: {path_str}" + (f" | Type: {stype}" if stype else "") + interval
-        safe_addstr(win, 1, info_x, truncate_text(meta, width - info_x - 2), colors["normal"])
+        safe_addstr(win, 1, info_x, truncate_text(meta, right_limit - info_x), colors["normal"])
 
     uptime = details.get("uptime") or sensor.get("uptime") or "-"
     downtime = details.get("downtime") or sensor.get("downtime") or "-"
     lastcheck = details.get("lastcheck") or sensor.get("lastcheck") or "-"
     lastval = details.get("lastvalue") or sensor.get("lastvalue") or "-"
     row2 = f"Last value: {lastval} | Uptime: {uptime} | Downtime: {downtime} | Last Check: {lastcheck}"
-    safe_addstr(win, 2, 2, truncate_text(row2, width - 4), colors["normal"])
+    safe_addstr(win, 2, 2, truncate_text(row2, max(10, right_limit - 2)), colors["normal"])
 
     # View tabs on row 3
     vx = 2
     for view_key in INSPECTOR_VIEWS:
         lbl = f"[{INSPECTOR_VIEW_LABELS[view_key]}]" if view_key == snap["inspector_view"] else f" {INSPECTOR_VIEW_LABELS[view_key]} "
+        if vx + len(lbl) > right_limit:
+            break
         attr = (colors["cyan"] | colors["bold"] | colors["reverse"]) if view_key == snap["inspector_view"] else colors["dim"]
         safe_addstr(win, 3, vx, lbl, attr)
         vx += len(lbl) + 2
     win_lbl = f"Window: {snap['inspector_window']}"
-    if vx + len(win_lbl) + 4 < width:
-        safe_addstr(win, 3, width - len(win_lbl) - 3, win_lbl, colors["cyan"])
+    if vx + len(win_lbl) + 2 <= right_limit:
+        safe_addstr(win, 3, right_limit - len(win_lbl) - 1, win_lbl, colors["cyan"])
 
     cursor_y = top_h
     if snap["inspector_error"]:
@@ -1509,7 +1597,7 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
         return
 
     if snap["inspector_open"] and snap["inspector_sensor"] is not None:
-        _render_inspector(win, snap, height, width, now_mono, spinner_idx, colors)
+        _render_inspector(win, snap, height, width, now_mono, now_epoch, spinner_idx, colors)
         if snap["show_help"]:
             _render_help_modal(win, snap, height, width, colors)
         win.noutrefresh()
@@ -1529,6 +1617,8 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
         border_attr=colors["cyan"],
         title_attr=colors["cyan"] | colors["bold"],
     )
+    clock_reserved = _render_top_right_clock(win, width, now_epoch, colors)
+    right_limit = width - clock_reserved - 2
     url_label = truncate_text(snap["prtg_url"], max(10, width // 3))
     if width > len(url_label) + 30:
         safe_addstr(win, 0, width - len(url_label) - 3, f" {url_label} ", colors["cyan"])
@@ -1567,7 +1657,7 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
             ("Other: ", f"{a_sum['other']}", colors["magenta"] if a_sum["other"] else colors["normal"]),
         ]
     for lbl, val, val_attr in counts:
-        if col_x + len(lbl) + len(val) + 2 >= width - 1:
+        if col_x + len(lbl) + len(val) >= right_limit:
             break
         safe_addstr(win, 1, col_x, lbl, colors["dim"])
         col_x += len(lbl)
@@ -1579,7 +1669,7 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
     for idx, (tab_key, tab_label) in enumerate(TABS):
         is_active = tab_key == snap["tab"]
         chunk = f"[{tab_label}]" if is_active else f" {tab_label} "
-        if tx + len(chunk) >= width - 2:
+        if tx + len(chunk) > right_limit:
             break
         attr = (colors["cyan"] | colors["bold"] | colors["reverse"]) if is_active else colors["dim"]
         safe_addstr(win, 2, tx, chunk, attr)
@@ -1604,7 +1694,7 @@ def render_tui(win, state, now_mono=None, now_epoch=None, spinner_idx=0, colors=
         range_lbl = dict(LOG_RANGES).get(snap["log_range"], snap["log_range"])
         extra += f" | Period: {range_lbl}"
     info_line = f"Updated: {updated_str} | Next: {remaining}s | Sort: {sort_label} | Filter: {filter_display}{extra}"
-    safe_addstr(win, 3, 2, truncate_text(info_line, width - 4), colors["normal"])
+    safe_addstr(win, 3, 2, truncate_text(info_line, max(10, right_limit - 2)), colors["normal"])
 
     # 2. Optional error or notice banner
     cursor_y = header_h
