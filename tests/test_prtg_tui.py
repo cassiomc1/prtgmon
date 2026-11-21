@@ -18,9 +18,11 @@ from prtg_tui import (
     handle_key,
     load_state_snapshot,
     open_sensor_url,
+    render_analog_clock_gmt3,
     render_braille_chart,
     render_tui,
     resolve_config_path,
+    sao_paulo_datetime,
     summarize_alerts,
     summarize_all_sensors,
 )
@@ -239,6 +241,47 @@ class PRTGTUITests(unittest.TestCase):
         self.assertEqual(10.0, cmin)
         self.assertEqual(80.0, cmax)
         self.assertTrue(any(0x2800 <= ord(ch) <= 0x28FF for line in curve_lines for ch in line))
+
+    def test_analog_clock_gmt3_computation_and_rendering(self):
+        # 2026-11-21T13:15:30Z -> 10:15:30 in GMT-3 (São Paulo)
+        epoch_utc = 1795266930.0
+        dt_sp = sao_paulo_datetime(epoch_utc)
+        self.assertEqual(10, dt_sp.hour)
+        self.assertEqual(15, dt_sp.minute)
+        self.assertEqual(30, dt_sp.second)
+        self.assertEqual(-10800, int(dt_sp.utcoffset().total_seconds()))
+
+        dial_lines, time_str, tz_str = render_analog_clock_gmt3(epoch_utc, width=7, height=3)
+        self.assertEqual(3, len(dial_lines))
+        self.assertTrue(all(len(row) == 7 for row in dial_lines))
+        self.assertEqual("10:15:30", time_str)
+        self.assertIn("GMT-3", tz_str)
+        self.assertTrue(any(ord(ch) > 0x2800 for row in dial_lines for ch in row))
+
+        # Different time should produce different hand positions on the analog Braille dial
+        dial_lines_later, time_str_later, _ = render_analog_clock_gmt3(epoch_utc + 3600 + 900, width=7, height=3)
+        self.assertEqual("11:30:30", time_str_later)
+        self.assertNotEqual(dial_lines, dial_lines_later)
+
+        # Verify top-right corner placement in main TUI and inspector
+        state = TUIState(mode="live", prtg_url="https://x.bytesec.app")
+        state.apply_snapshot(sample_alerts(), updated_at=epoch_utc)
+        win = FakeWindow(30, 110)
+        render_tui(win, state, now_mono=100.0, now_epoch=epoch_utc)
+        # Check that rows 1..3 in the top-right header box contain the GMT-3 clock and Braille dial
+        top_right_rows = ["".join(win.grid.get(y, [])[75:]).rstrip() for y in (1, 2, 3)]
+        top_right_block = "\n".join(top_right_rows)
+        self.assertIn("10:15:30", top_right_block)
+        self.assertIn("GMT-3", top_right_block)
+        self.assertTrue(any(0x2801 <= ord(ch) <= 0x28FF for ch in top_right_block))
+
+        # Also verify in Sensor Inspector top-right header
+        state.open_inspector(sample_alerts()[0])
+        render_tui(win, state, now_mono=100.0, now_epoch=epoch_utc)
+        insp_top_right = "\n".join("".join(win.grid.get(y, [])[75:]).rstrip() for y in (1, 2, 3))
+        self.assertIn("10:15:30", insp_top_right)
+        self.assertIn("GMT-3", insp_top_right)
+        self.assertTrue(any(0x2801 <= ord(ch) <= 0x28FF for ch in insp_top_right))
 
     def test_tui_state_preserves_selection_and_alerts_on_failed_refresh(self):
         state = TUIState(mode="live", prtg_url="https://prtg.example", refresh_interval=60)

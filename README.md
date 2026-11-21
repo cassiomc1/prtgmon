@@ -138,6 +138,7 @@ python3 scripts/install_macos_app.py --dest ~/Applications
 ```
 
 ### TUI Features
+- **Top-Right Analog Clock (São Paulo GMT-3):** high-resolution Unicode Braille analog clock dial with hour, minute, and second hands plus a live `São Paulo / GMT-3` readout in the top-right header box.
 - **5 Tabs (`1`–`5` or `Tab`):**
   1. `Alerts`: sensors with active alerts (loads `state.json` instantly on open).
   2. `Sensors`: all PRTG sensors with status filter (`f`: All/Alerts/Down/Warning/Up/Paused/Other) and sorting (`s`).
