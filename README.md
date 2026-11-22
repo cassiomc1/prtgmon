@@ -26,6 +26,7 @@ This project is a lightweight Python script that actively monitors your PRTG ser
 - [prtg_monitor.py](prtg_monitor.py) - Main monitoring, reconciliation, and CLI/LaunchAgent notification script.
 - [prtg_api.py](prtg_api.py) - Read-only JSON client for exploring PRTG sensors, devices, groups, channels, history, and logs.
 - [prtg_tui.py](prtg_tui.py) - Interactive terminal UI (`curses`) with tabs, Braille charts, and a sensor inspector.
+- [prtg_mcp.py](prtg_mcp.py) - Strictly read-only, zero-dependency MCP (Model Context Protocol) stdio server for Claude Desktop / Claude Code.
 - [scripts/install_macos_app.py](scripts/install_macos_app.py) - Packager and installer for the macOS app (`PRTG Monitor TUI.app`).
 - [assets/prtg-monitor-tui.png](assets/prtg-monitor-tui.png) - Source icon for the macOS app.
 - [config.json.example](config.json.example) - Configuration template (copy to `config.json`, ignored by Git).
@@ -162,6 +163,60 @@ Main shortcuts:
 - `/`: search | `c`: clear filters | `f`: filter status | `s`: sort | `r`: refresh
 - `Enter`: open sensor inspector (or filter sensors by device/group)
 - `m`: toggle `LIVE` / `STATE` mode | `o`: open in browser | `?`: help | `q`: quit
+
+---
+
+## 🤖 Servidor MCP para Claude (`prtg-mcp`)
+
+O [prtg_mcp.py](prtg_mcp.py) expõe um servidor **Model Context Protocol (MCP)** via `stdio` (JSON-RPC 2.0) **100% somente leitura** e sem dependências externas (compatível com `/usr/bin/python3`), permitindo consultar o PRTG em linguagem natural no Claude Desktop ou Claude Code.
+
+### Segurança e Garantia Somente Leitura
+- Utiliza exclusivamente endpoints `GET` somente leitura do [prtg_api.py](prtg_api.py) (`/api/getstatus.htm`, `/api/table.json`, `/api/getsensordetails.json`, `/api/historicdata.json`) e leitura passiva do `state.json`.
+- Todas as ferramentas declaram `readOnlyHint: true` e `destructiveHint: false`.
+- Tokens da API (`apitoken`) nunca são registrados ou retornados em erros/logs (`redact_secrets`), e logs internos são redirecionados para `stderr` para manter o stream JSON-RPC em `stdout` íntegro.
+
+### Configuração no Claude Desktop
+
+Adicione ao arquivo `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "prtg-mcp": {
+      "command": "/usr/bin/python3",
+      "args": [
+        "/caminho/para/prtgmon/prtg_mcp.py",
+        "/caminho/para/prtgmon/config.json"
+      ]
+    }
+  }
+}
+```
+
+Alternativamente, também é possível configurar via variáveis de ambiente (`PRTG_URL`, `PRTG_APITOKEN`, `PRTG_VERIFY_SSL`) ou `PRTG_CONFIG`.
+
+### Configuração no Claude Code
+
+```bash
+claude mcp add prtg-mcp -- /usr/bin/python3 /caminho/para/prtgmon/prtg_mcp.py /caminho/para/prtgmon/config.json
+```
+
+### Ferramentas Disponíveis e Exemplos de Perguntas
+
+- **`prtg_outages_report`**: responde *"Quais sensores caíram essa noite?"* (correlaciona logs de eventos e timestamps `lastdown`, distinguindo sensores ainda fora de operação dos que já normalizaram).
+- **`prtg_sensor_history`**: responde *"Qual o histórico desse link?"* (busca por `objid` ou nome/query, retorna estatísticas `min`/`avg`/`max`/`last`, pontos amostrados, canais ao vivo e eventos recentes).
+- **`prtg_get_overview`**: resumo geral de saúde do servidor PRTG, contagem de sensores por status e snapshot local.
+- **`prtg_list_alerts`**: lista alertas ativos (`Down`, `Down Partial`, `Down Acknowledged`, `Warning`, `Unusual`).
+- **`prtg_search_sensors`**: busca multi-termo por nome, dispositivo, grupo, probe, tag, mensagem ou ID.
+- **`prtg_get_sensor_details`**: metadados completos, uptime/downtime, canais ao vivo e eventos de 30 dias.
+- **`prtg_list_devices`** / **`prtg_list_groups`**: listagem de dispositivos e grupos com filtros para itens com falhas.
+
+Comandos auxiliares de verificação:
+
+```bash
+python3 prtg_mcp.py --check-config config.json
+python3 prtg_mcp.py --list-tools
+```
 
 ---
 

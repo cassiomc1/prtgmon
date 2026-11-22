@@ -28,6 +28,17 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _OLE_PREFIX_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(\[.*\])?\s*$")
 _OLE_EPOCH = datetime(1899, 12, 30, tzinfo=timezone.utc)
 _HISTORIC_META_KEYS = frozenset({"datetime", "datetime_raw", "coverage", "coverage_raw"})
+_OBJID_RE = re.compile(r"^-?[0-9A-Za-z_]{1,64}$")
+
+
+def validate_objid(objid):
+    """Validates and normalizes a PRTG object ID, returning None if unsafe or empty."""
+    if isinstance(objid, bool) or objid is None:
+        return None
+    text = str(objid).strip()
+    if not text or not _OBJID_RE.match(text):
+        return None
+    return text
 
 
 def strip_html(text):
@@ -366,15 +377,18 @@ class PRTGClient:
         return groups, None
 
     def fetch_sensor_details(self, objid):
-        data, err = self._fetch_json("/api/getsensordetails.json", params={"id": str(objid)})
+        safe_id = validate_objid(objid)
+        if safe_id is None:
+            return None, "Invalid sensor objid."
+        data, err = self._fetch_json("/api/getsensordetails.json", params={"id": safe_id})
         if err is not None:
             return None, err
         raw = data.get("sensordata") if isinstance(data, dict) else None
         if not isinstance(raw, dict):
-            return None, f"Details unavailable for sensor {objid}."
+            return None, f"Details unavailable for sensor {safe_id}."
 
         return {
-            "objid": str(objid),
+            "objid": safe_id,
             "name": strip_html(raw.get("name") or ""),
             "sensortype": strip_html(raw.get("sensortype") or ""),
             "probename": strip_html(raw.get("probename") or ""),
@@ -398,11 +412,14 @@ class PRTGClient:
         }, None
 
     def fetch_sensor_channels(self, objid):
+        safe_id = validate_objid(objid)
+        if safe_id is None:
+            return None, "Invalid sensor objid."
         data, err = self._fetch_json(
             "/api/table.json",
             params={
                 "content": "channels",
-                "id": str(objid),
+                "id": safe_id,
                 "columns": "name,lastvalue,lastvalue_raw",
                 "count": "200",
             },
@@ -411,7 +428,7 @@ class PRTGClient:
             return None, err
         rows = data.get("channels") if isinstance(data, dict) else None
         if not isinstance(rows, list):
-            return None, f"Channels unavailable for sensor {objid}."
+            return None, f"Channels unavailable for sensor {safe_id}."
 
         channels = []
         for item in rows:
@@ -427,17 +444,49 @@ class PRTGClient:
             })
         return channels, None
 
-    def fetch_historic_data(self, objid, window_key="24h", now=None):
-        window_map = {key: (hours, avg) for key, hours, avg in HISTORY_WINDOWS}
-        hours, avg = window_map.get(window_key, (24, 900))
+    def fetch_historic_data(self, objid, window_key="24h", now=None, hours=None, avg=None):
+        safe_id = validate_objid(objid)
+        if safe_id is None:
+            return None, "Invalid sensor objid."
+
+        window_map = {key: (win_hours, win_avg) for key, win_hours, win_avg in HISTORY_WINDOWS}
+        default_hours, default_avg = window_map.get(window_key, (24, 900))
+
+        if hours is not None:
+            if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours):
+                return None, "Invalid 'hours' parameter; must be between 1 and 720."
+            if hours < 1 or hours > 720:
+                return None, "Invalid 'hours' parameter; must be between 1 and 720."
+            effective_hours = float(hours)
+            if avg is None:
+                if effective_hours <= 1:
+                    default_avg = 60
+                elif effective_hours <= 4:
+                    default_avg = 300
+                elif effective_hours <= 24:
+                    default_avg = 900
+                elif effective_hours <= 168:
+                    default_avg = 3600
+                else:
+                    default_avg = 14400
+        else:
+            effective_hours = default_hours
+
+        if avg is not None:
+            if isinstance(avg, bool) or not isinstance(avg, int) or avg < 0 or avg > 86400:
+                return None, "Invalid 'avg' parameter; must be an integer between 0 and 86400."
+            effective_avg = avg
+        else:
+            effective_avg = default_avg
+
         end_dt = datetime.now() if now is None else now
-        start_dt = end_dt - timedelta(hours=hours)
+        start_dt = end_dt - timedelta(hours=effective_hours)
 
         data, err = self._fetch_json(
             "/api/historicdata.json",
             params={
-                "id": str(objid),
-                "avg": str(avg),
+                "id": safe_id,
+                "avg": str(effective_avg),
                 "sdate": start_dt.strftime("%Y-%m-%d-%H-%M-%S"),
                 "edate": end_dt.strftime("%Y-%m-%d-%H-%M-%S"),
                 "usecaption": "1",
@@ -447,7 +496,7 @@ class PRTGClient:
         if err is not None:
             return None, err
         if not isinstance(data, dict) or not isinstance(data.get("histdata"), list):
-            return None, f"History unavailable for sensor {objid}."
+            return None, f"History unavailable for sensor {safe_id}."
         return extract_historic_series(data.get("histdata", [])), None
 
     def fetch_messages(self, objid=None, drel="7days", count=150):
@@ -459,7 +508,10 @@ class PRTGClient:
             "sortby": "-datetime",
         }
         if objid is not None:
-            params["id"] = str(objid)
+            safe_id = validate_objid(objid)
+            if safe_id is None:
+                return None, "Invalid sensor objid."
+            params["id"] = safe_id
 
         data, err = self._fetch_json("/api/table.json", params=params)
         if err is not None:
