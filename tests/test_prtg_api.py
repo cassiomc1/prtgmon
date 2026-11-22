@@ -11,6 +11,7 @@ from prtg_api import (
     format_human_number,
     format_prtg_ole_datetime,
     strip_html,
+    validate_objid,
 )
 
 
@@ -212,6 +213,46 @@ class PRTGAPITests(unittest.TestCase):
         self.assertIsNone(data)
         self.assertIn("REDACTED", err)
         self.assertNotIn("my-super-secret-token", err)
+
+    def test_validate_objid_and_custom_historic_hours(self):
+        self.assertEqual("2113", validate_objid(2113))
+        self.assertEqual("-1", validate_objid("-1"))
+        self.assertIsNone(validate_objid(None))
+        self.assertIsNone(validate_objid(True))
+        self.assertIsNone(validate_objid("123?admin=1"))
+        self.assertIsNone(validate_objid("../etc/passwd"))
+
+        client = PRTGClient("https://prtg.example", "secret-token-xyz")
+        data, err = client.fetch_sensor_details("123/../../bad")
+        self.assertIsNone(data)
+        self.assertIn("Invalid sensor objid", err)
+
+        data, err = client.fetch_historic_data("2113", hours=0)
+        self.assertIsNone(data)
+        self.assertIn("Invalid 'hours'", err)
+
+        captured_qs = {}
+
+        def fake_urlopen(req, context=None, timeout=None):
+            parsed = urllib.parse.urlsplit(req.full_url)
+            captured_qs.update(urllib.parse.parse_qs(parsed.query))
+            return _mock_json_response({
+                "histdata": [
+                    {"datetime": "t1", "Traffic In": 100.0, "coverage": "100 %"},
+                ]
+            })
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            historic, err = client.fetch_historic_data(
+                "2113",
+                hours=12,
+                now=datetime(2026, 11, 22, 6, 0, 0),
+            )
+        self.assertIsNone(err)
+        self.assertEqual(["2026-11-21-18-00-00"], captured_qs["sdate"])
+        self.assertEqual(["2026-11-22-06-00-00"], captured_qs["edate"])
+        self.assertEqual(["900"], captured_qs["avg"])
+        self.assertEqual(100.0, historic["stats"]["Traffic In"]["last"])
 
 
 if __name__ == "__main__":

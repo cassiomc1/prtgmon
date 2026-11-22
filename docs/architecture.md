@@ -52,6 +52,21 @@ For a LaunchAgent deployment, use a dedicated installation directory, absolute p
 
 `scripts/install_macos_app.py` packages `prtg_tui.py`, `prtg_api.py`, `prtg_monitor.py`, and an `.icns` icon built via `sips`/`iconutil` into a self-contained macOS `.app` bundle (e.g., `/Applications/PRTG Monitor TUI.app`) that opens in `Terminal.app` via `/usr/bin/open -a Terminal` without Automation permission prompts or developer checkout path references.
 
+## Read-only MCP Server (`prtg_mcp.py`)
+
+`prtg_mcp.py` provides a zero-dependency stdio JSON-RPC 2.0 Model Context Protocol (MCP) server built on top of `PRTGClient` (`prtg_api.py`), `PRTGMonitor.validate_config` (`prtg_monitor.py`), and passive `state.json` snapshot reading (`load_state_snapshot`).
+
+- **Protocol & Framing**: Supports MCP handshake (`initialize`, `notifications/initialized`, `ping`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, and `prompts/get`, automatically detecting both newline-delimited JSON-RPC (NDJSON) and `Content-Length` framed streams.
+- **Read-Only & Secret Safety**: Redirects all `prtg_monitor` log output to `stderr` via `set_log_handler()` so `stdout` carries only valid JSON-RPC frames, marks every tool with `readOnlyHint: true` and `destructiveHint: false`, validates `objid`, numeric bounds, and config inputs, and strips `apitoken` values from all returned errors via `redact_secrets()`.
+- **Tool Catalog**:
+  - `prtg_get_overview`: Server status, sensor counts by state, top alerts, and optional local `state.json` summary.
+  - `prtg_list_alerts`: Filtered list of active alerts with direct sensor URLs.
+  - `prtg_outages_report`: Correlates PRTG event logs (`messages`), `lastdown` timestamps, and current states over configurable windows (`overnight`, `today`, `24h`, `7days`, `30days`, or custom `hours`) to identify both currently down and recovered incidents.
+  - `prtg_search_sensors`: Multi-term sensor search by name, device, group, probe, tags, message, or `objid`.
+  - `prtg_get_sensor_details`: Full sensor metadata, live channels, and 30-day event history.
+  - `prtg_sensor_history`: Resolves a link/sensor by `objid` or query and returns per-channel summary stats (`min`, `max`, `avg`, `last`), bounded downsampled time series, live channels, and recent status events.
+  - `prtg_list_devices` / `prtg_list_groups`: Device and group health inventory with `only_with_issues` filtering.
+
 ## Validation
 
 ```bash
@@ -59,4 +74,5 @@ python3 -m unittest discover -v
 /usr/bin/python3 -m unittest discover -v
 python3 prtg_monitor.py --check-config config.json
 python3 prtg_monitor.py --once config.json
+python3 prtg_mcp.py --list-tools
 ```
